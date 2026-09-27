@@ -48,3 +48,49 @@ func TestWrongPasswordReturnsCannotUnlock(t *testing.T) {
 		t.Fatalf("Open error = %v", err)
 	}
 }
+
+func TestCannotUnlockDoesNotDistinguishFailureKinds(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "vault.ev1")
+	password := []byte("correct")
+	if err := Create(p, password, crypto.DefaultKDFParams(1)); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mutation := range []func([]byte){
+		func(b []byte) { b[0] ^= 1 },
+		func(b []byte) { b[len(b)-1] ^= 1 },
+	} {
+		mutated := append([]byte(nil), raw...)
+		mutation(mutated)
+		if err := os.WriteFile(p, mutated, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Open(p, password); !errors.Is(err, ErrCannotUnlock) {
+			t.Fatalf("Open() error = %v, want ErrCannotUnlock", err)
+		}
+	}
+}
+
+func TestExistingVaultIsNeverOverwritten(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "vault.ev1")
+	if err := Create(p, []byte("correct"), crypto.DefaultKDFParams(1)); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Create(p, []byte("other"), crypto.DefaultKDFParams(1)); !errors.Is(err, ErrAlreadyExists) {
+		t.Fatalf("Create() error = %v, want ErrAlreadyExists", err)
+	}
+	after, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("existing vault was overwritten")
+	}
+}

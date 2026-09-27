@@ -22,15 +22,21 @@ type Opened struct {
 	header Header
 	key    []byte
 	data   payload
+	lock   *vaultLock
 }
 
 func Create(path string, password []byte, params crypto.KDFParams) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	lock, err := acquireLock(path)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
 	if _, err := os.Stat(path); err == nil {
 		return ErrAlreadyExists
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
 	salt, nonce := make([]byte, 32), make([]byte, 24)
@@ -49,33 +55,44 @@ func Create(path string, password []byte, params crypto.KDFParams) error {
 }
 
 func Open(path string, password []byte) (*Opened, error) {
+	lock, err := acquireLock(path)
+	if err != nil {
+		return nil, err
+	}
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
+		lock.Close()
 		return nil, ErrNotFound
 	}
 	if err != nil {
+		lock.Close()
 		return nil, ErrCannotUnlock
 	}
 	if len(raw) < headerSize {
+		lock.Close()
 		return nil, ErrCannotUnlock
 	}
 	h, err := ParseHeader(raw[:headerSize])
 	if err != nil {
+		lock.Close()
 		return nil, ErrCannotUnlock
 	}
 	key, err := crypto.DeriveKey(password, h.Salt, h.Params)
 	if err != nil {
+		lock.Close()
 		return nil, ErrCannotUnlock
 	}
 	plain, err := crypto.Open(key, h.Nonce, raw[headerSize:], raw[:headerSize])
 	if err != nil {
+		lock.Close()
 		return nil, ErrCannotUnlock
 	}
 	var data payload
 	if json.Unmarshal(plain, &data) != nil || data.Version != 1 || data.Secrets == nil {
+		lock.Close()
 		return nil, ErrCannotUnlock
 	}
-	return &Opened{path: path, header: h, key: key, data: data}, nil
+	return &Opened{path: path, header: h, key: key, data: data, lock: lock}, nil
 }
 
 func (v *Opened) Put(ref domain.Reference, value []byte, _ time.Time) error {
@@ -130,4 +147,5 @@ func (v *Opened) Close() {
 	for i := range v.key {
 		v.key[i] = 0
 	}
+	v.lock.Close()
 }
