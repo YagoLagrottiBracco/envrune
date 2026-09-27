@@ -16,3 +16,14 @@ func TestSetRejectsValueAsSecondPositionalArgument(t *testing.T) {
 		t.Fatal("secret leaked")
 	}
 }
+
+func TestLinkRejectsMissingEnvironmentWithoutEchoingReference(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := Execute([]string{"link", "OPENAI_API_KEY", "openai.personal"}, &out, &errOut)
+	if code == 0 {
+		t.Fatal("expected failure")
+	}
+	if strings.Contains(out.String()+errOut.String(), "openai.personal") {
+		t.Fatal("reference should not be echoed in syntax errors")
+	}
+}

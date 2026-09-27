@@ -14,8 +14,9 @@ import (
 )
 
 type payload struct {
-	Version uint8             `json:"version"`
-	Secrets map[string][]byte `json:"secrets"`
+	Version  uint8             `json:"version"`
+	Secrets  map[string][]byte `json:"secrets"`
+	Projects []string          `json:"projects"`
 }
 
 const maxVaultBytes = 16 << 20
@@ -53,7 +54,7 @@ func Create(path string, password []byte, params crypto.KDFParams) error {
 	if err != nil {
 		return err
 	}
-	v := &Opened{path: path, header: Header{Params: params, Salt: salt, Nonce: nonce}, key: key, data: payload{Version: 1, Secrets: map[string][]byte{}}}
+	v := &Opened{path: path, header: Header{Params: params, Salt: salt, Nonce: nonce}, key: key, data: payload{Version: 1, Secrets: map[string][]byte{}, Projects: []string{}}}
 	return v.Commit()
 }
 
@@ -109,8 +110,22 @@ func Open(path string, password []byte) (*Opened, error) {
 		lock.Close()
 		return nil, ErrCannotUnlock
 	}
+	if data.Projects == nil {
+		data.Projects = []string{}
+	}
 	return &Opened{path: path, header: h, key: key, data: data, lock: lock}, nil
 }
+
+func (v *Opened) RegisterProject(path string) {
+	for _, known := range v.data.Projects {
+		if known == path {
+			return
+		}
+	}
+	v.data.Projects = append(v.data.Projects, path)
+}
+
+func (v *Opened) Projects() []string { return append([]string(nil), v.data.Projects...) }
 
 func (v *Opened) Put(ref domain.Reference, value []byte, _ time.Time) error {
 	v.data.Secrets[ref.String()] = append([]byte(nil), value...)
