@@ -1,8 +1,11 @@
 // Envrune is a local-first encrypted environment-variable manager.
 package main
 
-import "fmt"
+import (
+	"github.com/envrune/envrune/internal/cli"
+	"os"
+)
 
 func main() {
-	fmt.Println("envrune: use `envrune --help` for available commands")
+	os.Exit(cli.Execute(os.Args[1:], os.Stdout, os.Stderr))
 }
