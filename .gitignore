@@ -1,2 +1,8 @@
 /.worktrees/
 /.superpowers/
+/.tools/
+/bin/
+/envrune.exe
+.env
+.env.*
+!.env.example
