@@ -37,3 +37,27 @@ func TestLinkAndUsageReadCurrentProjectConfiguration(t *testing.T) {
 		t.Fatalf("Usage() = %#v, want %#v", got, want)
 	}
 }
+
+func TestLinkWrongPasswordDoesNotModifyProject(t *testing.T) {
+	root := t.TempDir()
+	vaultPath := filepath.Join(root, "vault.ev1")
+	projectPath := filepath.Join(root, "envrune.yml")
+	password := []byte("correct horse battery staple")
+	if err := vault.Create(vaultPath, password, crypto.DefaultKDFParams(1)); err != nil {
+		t.Fatal(err)
+	}
+	initial := []byte("version: 1\nproject: x\nenvironments: {}\n")
+	if err := os.WriteFile(projectPath, initial, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := (VaultService{}).Link(vaultPath, projectPath, "dev", "OPENAI_API_KEY", "openai.personal", []byte("wrong")); err == nil {
+		t.Fatal("expected error")
+	}
+	after, err := os.ReadFile(projectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(initial) {
+		t.Fatal("link modified project after vault authentication failed")
+	}
+}

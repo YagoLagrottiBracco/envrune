@@ -68,22 +68,20 @@ func (VaultService) Link(vaultPath, projectPath, environment, variable, rawRefer
 	if err != nil {
 		return err
 	}
-	config, err := project.Load(projectPath)
-	if err != nil {
-		return err
-	}
-	if config.Environments[environment] == nil {
-		config.Environments[environment] = map[string]domain.Reference{}
-	}
-	config.Environments[environment][variable] = ref
-	if err := project.WriteAtomic(projectPath, config); err != nil {
-		return err
-	}
 	v, err := vault.Open(vaultPath, password)
 	if err != nil {
 		return err
 	}
 	defer v.Close()
+	if err := project.UpdateAtomic(projectPath, func(config *project.Config) error {
+		if config.Environments[environment] == nil {
+			config.Environments[environment] = map[string]domain.Reference{}
+		}
+		config.Environments[environment][variable] = ref
+		return nil
+	}); err != nil {
+		return err
+	}
 	v.RegisterProject(projectPath)
 	return v.Commit()
 }

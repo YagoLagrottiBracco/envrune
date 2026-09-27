@@ -74,3 +74,11 @@ func TestProjectConfigurationNeverContainsSecretSentinel(t *testing.T) {
 		t.Fatal("secret sentinel leaked")
 	}
 }
+
+func TestWriteAtomicRejectsEmptyEnvironment(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "envrune.yml")
+	ref, _ := domain.ParseReference("openai.personal")
+	if err := WriteAtomic(p, Config{Version: 1, Project: "x", Environments: map[string]map[string]domain.Reference{"": {"OPENAI_API_KEY": ref}}}); err == nil {
+		t.Fatal("WriteAtomic accepted an empty environment")
+	}
+}

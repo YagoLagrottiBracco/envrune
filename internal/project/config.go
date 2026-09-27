@@ -12,6 +12,7 @@ import (
 )
 
 var ErrInvalidConfig = errors.New("invalid project configuration")
+var ErrProjectBusy = errors.New("project configuration is busy")
 var variableName = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 
 func VariableName(value string) bool { return variableName.MatchString(value) }
@@ -83,7 +84,10 @@ func WriteAtomic(path string, config Config) error {
 	if config.Version != 1 || config.Project == "" || config.Environments == nil {
 		return ErrInvalidConfig
 	}
-	for _, mappings := range config.Environments {
+	for environment, mappings := range config.Environments {
+		if environment == "" {
+			return ErrInvalidConfig
+		}
 		for variable, ref := range mappings {
 			if !variableName.MatchString(variable) {
 				return ErrInvalidConfig
@@ -126,4 +130,20 @@ func WriteAtomic(path string, config Config) error {
 		return err
 	}
 	return syncParent(filepath.Dir(path))
+}
+
+func UpdateAtomic(path string, update func(*Config) error) error {
+	lock, err := lockConfig(path)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	config, err := Load(path)
+	if err != nil {
+		return err
+	}
+	if err := update(&config); err != nil {
+		return err
+	}
+	return WriteAtomic(path, config)
 }
