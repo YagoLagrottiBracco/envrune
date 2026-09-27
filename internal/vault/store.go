@@ -17,6 +17,9 @@ type payload struct {
 	Version uint8             `json:"version"`
 	Secrets map[string][]byte `json:"secrets"`
 }
+
+const maxVaultBytes = 16 << 20
+
 type Opened struct {
 	path   string
 	header Header
@@ -59,7 +62,21 @@ func Open(path string, password []byte) (*Opened, error) {
 	if err != nil {
 		return nil, err
 	}
-	raw, err := os.ReadFile(path)
+	file, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		lock.Close()
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		lock.Close()
+		return nil, ErrCannotUnlock
+	}
+	raw, err := io.ReadAll(io.LimitReader(file, maxVaultBytes+1))
+	_ = file.Close()
+	if len(raw) > maxVaultBytes {
+		lock.Close()
+		return nil, ErrCannotUnlock
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		lock.Close()
 		return nil, ErrNotFound
@@ -141,7 +158,10 @@ func (v *Opened) Commit() error {
 	if err = tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(name, v.path)
+	if err = os.Rename(name, v.path); err != nil {
+		return err
+	}
+	return syncParent(filepath.Dir(v.path))
 }
 func (v *Opened) Close() {
 	for i := range v.key {

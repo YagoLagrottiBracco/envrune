@@ -24,5 +24,5 @@ func DefaultKDFParams(cpuCount int) KDFParams {
 }
 
 func (p KDFParams) Valid() bool {
-	return p.Time > 0 && p.MemoryKiB > 0 && p.Threads > 0 && p.KeyLength == 32
+	return p.Time == 3 && p.MemoryKiB == 65536 && p.Threads >= 1 && p.Threads <= 4 && p.KeyLength == 32
 }

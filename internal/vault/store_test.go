@@ -94,3 +94,13 @@ func TestExistingVaultIsNeverOverwritten(t *testing.T) {
 		t.Fatal("existing vault was overwritten")
 	}
 }
+
+func TestOpenRejectsOversizedVault(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "vault.ev1")
+	if err := os.WriteFile(p, make([]byte, maxVaultBytes+1), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(p, []byte("password")); !errors.Is(err, ErrCannotUnlock) {
+		t.Fatalf("Open error = %v", err)
+	}
+}

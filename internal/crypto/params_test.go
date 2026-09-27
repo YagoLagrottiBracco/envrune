@@ -14,3 +14,11 @@ func TestDefaultKDFParamsUsesAtLeastOneThread(t *testing.T) {
 		t.Fatalf("Threads = %d, want 1", got)
 	}
 }
+
+func TestKDFParamsRejectsUnboundedHeaderCosts(t *testing.T) {
+	for _, params := range []KDFParams{{Time: 4, MemoryKiB: 65536, Threads: 1, KeyLength: 32}, {Time: 3, MemoryKiB: 1 << 30, Threads: 1, KeyLength: 32}} {
+		if params.Valid() {
+			t.Fatalf("accepted unsafe parameters: %+v", params)
+		}
+	}
+}
