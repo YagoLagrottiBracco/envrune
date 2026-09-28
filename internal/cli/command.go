@@ -30,6 +30,13 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 	if args[0] == "ui" {
 		return executeUI(args[1:], stdout, stderr)
 	}
+	if args[0] == "shell" {
+		if len(args) != 1 {
+			fmt.Fprintln(stderr, "usage: envrune shell")
+			return 2
+		}
+		return executeShell(stdout, stderr)
+	}
 	status := NewPresenter(stdout, stderr, os.Getenv)
 	if args[0] == "set" && len(args) != 2 {
 		fmt.Fprintln(stderr, "usage: envrune set <secret-reference>")
