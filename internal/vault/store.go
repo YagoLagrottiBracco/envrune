@@ -131,6 +131,15 @@ func (v *Opened) Put(ref domain.Reference, value []byte, _ time.Time) error {
 	v.data.Secrets[ref.String()] = append([]byte(nil), value...)
 	return nil
 }
+
+func (v *Opened) Value(ref domain.Reference) ([]byte, bool) {
+	value, ok := v.data.Secrets[ref.String()]
+	if !ok {
+		return nil, false
+	}
+	return append([]byte(nil), value...), true
+}
+
 func (v *Opened) References() []domain.Reference {
 	refs := make([]domain.Reference, 0, len(v.data.Secrets))
 	for raw := range v.data.Secrets {
