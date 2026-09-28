@@ -39,6 +39,9 @@ func TestHelpFlagShowsUsageWithoutPromptingForPassword(t *testing.T) {
 	if !strings.Contains(out.String(), "Usage: envrune") {
 		t.Fatalf("expected usage on stdout, got %q", out.String())
 	}
+	if !strings.Contains(out.String(), "shell") {
+		t.Fatalf("expected interactive shell in usage, got %q", out.String())
+	}
 	if errOut.Len() != 0 {
 		t.Fatalf("expected no stderr output, got %q", errOut.String())
 	}

@@ -24,7 +24,7 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 	}
 	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		fmt.Fprintln(stdout, "Usage: envrune <command>")
-		fmt.Fprintln(stdout, "Commands: init, set, list, link, usage, generate, import, run, export, ui")
+		fmt.Fprintln(stdout, "Commands: init, shell, set, list, link, usage, generate, import, run, export, ui")
 		return 0
 	}
 	if args[0] == "ui" {

@@ -2,6 +2,8 @@
 
 Run `envrune ui` in a terminal. Envrune asks for the master password there, opens the vault, then starts an HTTP listener on `127.0.0.1` at a free port. It attempts to open your Linux browser with `xdg-open`; the terminal also prints the link.
 
+When you are already inside `envrune shell`, run `ui` directly. It reuses that in-memory session and does not request the master password again. Locking the browser session stops only the local HTTP server; use `lock` or `exit` in the Envrune shell to wipe the vault session itself.
+
 ```sh
 envrune ui
 envrune ui --port 43821
