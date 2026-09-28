@@ -13,7 +13,8 @@ var ErrChildFailed = errors.New("child process failed")
 
 func Run(command []string, additions []Pair, inherited []string, stdout, stderr io.Writer) (int, error) {
 	if len(command) == 0 || command[0] == "" { return 2, ErrInvalidCommand }
-	cmd := exec.Command(command[0], command[1:]...)
+	cmd, err := childCommand(command)
+	if err != nil { return 1, ErrChildFailed }
 	cmd.Env = extendEnvironment(inherited, additions)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, stdout, stderr
 	configureChild(cmd)
