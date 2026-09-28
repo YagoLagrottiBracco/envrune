@@ -22,6 +22,11 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: envrune <command>")
 		return 2
 	}
+	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
+		fmt.Fprintln(stdout, "Usage: envrune <command>")
+		fmt.Fprintln(stdout, "Commands: init, set, list, link, usage, generate, import, run, export, ui")
+		return 0
+	}
 	if args[0] == "ui" { return executeUI(args[1:], stdout, stderr) }
 	if args[0] == "set" && len(args) != 2 {
 		fmt.Fprintln(stderr, "usage: envrune set <secret-reference>")
