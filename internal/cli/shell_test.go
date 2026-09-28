@@ -2,7 +2,9 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -103,6 +105,40 @@ func TestShellClosesSessionOnEOF(t *testing.T) {
 		t.Fatalf("vault remained locked after EOF: %v", err)
 	}
 	opened.Close()
+}
+
+func TestShellUIUsesExistingSessionWithoutSecondPassword(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vault.ev1")
+	password := []byte("shell-master-password")
+	if err := (app.VaultService{}).Init(path, password, append([]byte(nil), password...)); err != nil {
+		t.Fatal(err)
+	}
+	reads, starts := 0, 0
+	var out, errOut bytes.Buffer
+	shell := Shell{
+		Input:  strings.NewReader("ui --no-browser\nexit\n"),
+		Stdout: &out,
+		Stderr: &errOut,
+		ReadSecret: func(string) ([]byte, error) {
+			reads++
+			return append([]byte(nil), password...), nil
+		},
+		OpenSession: func(got []byte) (*app.Session, error) { return app.OpenSession(path, got) },
+		StartUI: func(session *app.Session, args []string, stdout, stderr io.Writer) int {
+			starts++
+			if session == nil || !reflect.DeepEqual(args, []string{"--no-browser"}) {
+				t.Fatal("shell did not pass the active session to the UI")
+			}
+			return 0
+		},
+	}
+
+	if code := shell.Run(); code != 0 {
+		t.Fatalf("Run() = %d: %s", code, errOut.String())
+	}
+	if reads != 1 || starts != 1 {
+		t.Fatalf("password reads=%d UI starts=%d", reads, starts)
+	}
 }
 
 func TestParseShellLineRejectsUnclosedQuote(t *testing.T) {

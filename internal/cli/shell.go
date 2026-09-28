@@ -28,6 +28,7 @@ type Shell struct {
 	OpenSession func([]byte) (*app.Session, error)
 	FindProject func(string) (string, error)
 	Environment func() []string
+	StartUI     func(*app.Session, []string, io.Writer, io.Writer) int
 }
 
 func executeShell(stdout, stderr io.Writer) int {
@@ -46,6 +47,7 @@ func executeShell(stdout, stderr io.Writer) int {
 		},
 		FindProject: project.Find,
 		Environment: os.Environ,
+		StartUI:     executeSessionUI,
 	}.Run()
 }
 
@@ -208,7 +210,11 @@ func (s Shell) execute(session *app.Session, status Presenter, args []string) (i
 	case "run", "export":
 		return s.executeRuntimeCommand(session, status, args)
 	case "ui":
-		status.Info("The local UI is available through the one-shot ui command.")
+		start := s.StartUI
+		if start == nil {
+			start = executeSessionUI
+		}
+		return start(session, args[1:], s.Stdout, s.Stderr), false
 	default:
 		status.Error("Unknown command.")
 		return 2, false

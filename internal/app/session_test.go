@@ -1,8 +1,10 @@
 package app
 
 import (
+	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/envrune/envrune/internal/domain"
@@ -59,5 +61,26 @@ func TestSessionLinkAndResolveEnvironment(t *testing.T) {
 	}
 	if len(pairs) != 1 || pairs[0].Name != "OPENAI_API_KEY" || string(pairs[0].Value) != "session-secret-sentinel" {
 		t.Fatalf("ResolveEnvironment() = %#v", pairs)
+	}
+}
+
+func TestSessionSnapshotNeverContainsSecretValue(t *testing.T) {
+	path, password := initializedVault(t)
+	const sentinel = "session-secret-sentinel"
+	session, err := OpenSession(path, password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if err := session.Set("openai.demo", []byte(sentinel)); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot := session.Snapshot()
+	if len(snapshot.References) != 1 || snapshot.References[0].Name != "openai.demo" {
+		t.Fatalf("Snapshot() = %#v", snapshot)
+	}
+	if strings.Contains(fmt.Sprintf("%#v", snapshot), sentinel) {
+		t.Fatal("secret leaked through metadata snapshot")
 	}
 }

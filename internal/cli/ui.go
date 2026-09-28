@@ -67,7 +67,25 @@ func executeUI(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer dashboard.Close()
-	server, err := ui.New(port, dashboard)
+	return serveUI(port, browser, dashboard, stdout, stderr)
+}
+
+func executeSessionUI(session *app.Session, args []string, stdout, stderr io.Writer) int {
+	port, browser, err := uiArguments(args)
+	if err != nil {
+		fmt.Fprintln(stderr, "usage: envrune ui [--port <port>] [--no-browser]")
+		return 2
+	}
+	if session == nil {
+		NewPresenter(stdout, stderr, os.Getenv).Error("Local interface is unavailable.")
+		return 1
+	}
+	return serveUI(port, browser, session, stdout, stderr)
+}
+
+func serveUI(port int, browser bool, source ui.MetadataSource, stdout, stderr io.Writer) int {
+	status := NewPresenter(stdout, stderr, os.Getenv)
+	server, err := ui.New(port, source)
 	if err != nil {
 		status.Error("Local interface is unavailable.")
 		return 1
