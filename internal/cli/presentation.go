@@ -44,11 +44,11 @@ func NewPresenter(stdout, stderr io.Writer, getenv func(string) string) Presente
 }
 
 func (p Presenter) Success(message string) {
-	p.write(p.stdout, p.stdoutColor, ansiGreen, "OK", message)
+	p.write(p.stderr, p.stderrColor, ansiGreen, "OK", message)
 }
-func (p Presenter) Info(message string) { p.write(p.stdout, p.stdoutColor, ansiBlue, "INFO", message) }
+func (p Presenter) Info(message string) { p.write(p.stderr, p.stderrColor, ansiBlue, "INFO", message) }
 func (p Presenter) Warn(message string) {
-	p.write(p.stdout, p.stdoutColor, ansiYellow, "WARNING", message)
+	p.write(p.stderr, p.stderrColor, ansiYellow, "WARNING", message)
 }
 func (p Presenter) Error(message string) { p.write(p.stderr, p.stderrColor, ansiRed, "ERROR", message) }
 

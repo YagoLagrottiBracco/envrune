@@ -13,10 +13,10 @@ func TestPresenterWritesPlainTextWhenOutputIsNotATerminal(t *testing.T) {
 	presenter.Success("Vault initialized.")
 	presenter.Error("Vault is unavailable.")
 
-	if got := out.String(); got != "[OK] Vault initialized.\n" {
+	if got := out.String(); got != "" {
 		t.Fatalf("stdout = %q", got)
 	}
-	if got := errOut.String(); got != "[ERROR] Vault is unavailable.\n" {
+	if got := errOut.String(); got != "[OK] Vault initialized.\n[ERROR] Vault is unavailable.\n" {
 		t.Fatalf("stderr = %q", got)
 	}
 	if strings.Contains(out.String()+errOut.String(), "\x1b[") {
@@ -38,10 +38,13 @@ func TestPresenterHonorsNoColor(t *testing.T) {
 	})
 	presenter.Warn("Plaintext export requires confirmation.")
 
-	if got := out.String(); got != "[WARNING] Plaintext export requires confirmation.\n" {
+	if got := out.String(); got != "" {
 		t.Fatalf("stdout = %q", got)
 	}
-	if strings.Contains(out.String(), "\x1b[") {
+	if got := errOut.String(); got != "[WARNING] Plaintext export requires confirmation.\n" {
+		t.Fatalf("stderr = %q", got)
+	}
+	if strings.Contains(errOut.String(), "\x1b[") {
 		t.Fatal("NO_COLOR output contained ANSI styling")
 	}
 }
@@ -60,7 +63,7 @@ func TestPresenterStylesTerminalOutput(t *testing.T) {
 	})
 	presenter.Info("Vault unlocked for this session.")
 
-	if got := out.String(); got != "\x1b[34m[INFO]\x1b[0m Vault unlocked for this session.\n" {
-		t.Fatalf("stdout = %q", got)
+	if got := errOut.String(); got != "\x1b[34m[INFO]\x1b[0m Vault unlocked for this session.\n" {
+		t.Fatalf("stderr = %q", got)
 	}
 }

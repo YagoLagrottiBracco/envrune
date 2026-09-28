@@ -2,13 +2,16 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/envrune/envrune/internal/app"
 	"github.com/envrune/envrune/internal/dotenv"
@@ -29,10 +32,13 @@ type Shell struct {
 	FindProject func(string) (string, error)
 	Environment func() []string
 	StartUI     func(*app.Session, []string, io.Writer, io.Writer) int
+	Interrupt   <-chan struct{}
 }
 
 func executeShell(stdout, stderr io.Writer) int {
 	prompt := SecretPrompt{Output: stderr}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	return Shell{
 		Input:      os.Stdin,
 		Stdout:     stdout,
@@ -48,6 +54,7 @@ func executeShell(stdout, stderr io.Writer) int {
 		FindProject: project.Find,
 		Environment: os.Environ,
 		StartUI:     executeSessionUI,
+		Interrupt:   ctx.Done(),
 	}.Run()
 }
 
@@ -74,8 +81,24 @@ func (s Shell) Run() int {
 	reader := bufio.NewReader(s.Input)
 	for {
 		_, _ = fmt.Fprint(s.Stdout, "envrune [unlocked] > ")
+		if s.Interrupt != nil {
+			select {
+			case <-s.Interrupt:
+				status.Success("Session locked.")
+				return 130
+			default:
+			}
+		}
 		line, readErr := reader.ReadString('\n')
 		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			if s.Interrupt != nil {
+				select {
+				case <-s.Interrupt:
+					status.Success("Session locked.")
+					return 130
+				default:
+				}
+			}
 			status.Error("Session input is unavailable.")
 			return 1
 		}
