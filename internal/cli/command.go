@@ -20,6 +20,7 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: envrune <command>")
 		return 2
 	}
+	if args[0] == "ui" { return executeUI(args[1:], stdout, stderr) }
 	if args[0] == "set" && len(args) != 2 {
 		fmt.Fprintln(stderr, "usage: envrune set <secret-reference>")
 		return 2
