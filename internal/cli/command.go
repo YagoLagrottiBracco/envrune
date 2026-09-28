@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"strconv"
 
 	"github.com/envrune/envrune/internal/app"
@@ -104,7 +106,7 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 		pairs, err = s.ResolveEnvironment(path, projectPath, args[2], password)
 		defer wipePairs(pairs)
 		if args[0] == "run" && err == nil { code, runErr := runner.Run(args[4:], pairs, os.Environ(), stdout, stderr); if runErr != nil { return code }; return code }
-		if args[0] == "export" && err == nil { output, force, e := exportArguments(args[3:], args[2]); if e != nil { fmt.Fprintln(stderr, "invalid export arguments"); return 2 }; if !confirm(stderr) { fmt.Fprintln(stderr, "confirmation required"); return 1 }; err = exporter.Write(output, pairs, force) }
+		if args[0] == "export" && err == nil { output, force, e := exportArguments(args[3:], args[2]); if e != nil { fmt.Fprintln(stderr, "invalid export arguments"); return 2 }; for _, pair := range pairs { fmt.Fprintln(stdout, pair.Name) }; fmt.Fprintln(stderr, "export writes plaintext; delete it manually after use"); if !confirm(stderr) { fmt.Fprintln(stderr, "confirmation required"); return 1 }; if insideGit(filepath.Dir(output)) && !confirm(stderr) { fmt.Fprintln(stderr, "additional git confirmation required"); return 1 }; err = exporter.Write(output, pairs, force) }
 	}
 	if err != nil {
 		fmt.Fprintln(stderr, "command failed")
@@ -113,7 +115,8 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 func confirm(out io.Writer) bool { p := SecretPrompt{Output: out}; value, err := p.Read("Type YES to confirm"); if err != nil { return false }; defer wipe(value); return string(value) == "YES" }
-func exportArguments(args []string, environment string) (string, bool, error) { output := filepath.Join(".", ".env."+environment); force := false; for len(args) > 0 { switch args[0] { case "--force": force = true; args = args[1:]; case "--output": if len(args) < 2 { return "", false, fmt.Errorf("bad") }; output = args[1]; args = args[2:]; default: return "", false, fmt.Errorf("bad") } }; return output, force, nil }
+func exportArguments(args []string, environment string) (string, bool, error) { if environment == "" || strings.ContainsAny(environment, "/\\") || environment == "." || environment == ".." { return "", false, fmt.Errorf("bad") }; output := filepath.Join(".", ".env."+environment); force := false; for len(args) > 0 { switch args[0] { case "--force": force = true; args = args[1:]; case "--output": if len(args) < 2 { return "", false, fmt.Errorf("bad") }; output = args[1]; args = args[2:]; default: return "", false, fmt.Errorf("bad") } }; return output, force, nil }
+func insideGit(dir string) bool { return exec.Command("git", "-C", dir, "rev-parse", "--is-inside-work-tree").Run() == nil }
 func wipePairs(pairs []runner.Pair) { for _, pair := range pairs { wipe(pair.Value) } }
 func wipe(b []byte) {
 	for i := range b {
