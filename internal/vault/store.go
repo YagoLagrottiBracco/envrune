@@ -164,6 +164,9 @@ func (v *Opened) Commit() error {
 	if err != nil {
 		return err
 	}
+	if len(header)+len(cipher) > maxVaultBytes {
+		return ErrCannotUnlock
+	}
 	tmp, err := os.CreateTemp(filepath.Dir(v.path), ".vault-")
 	if err != nil {
 		return err

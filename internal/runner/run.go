@@ -3,6 +3,7 @@ package runner
 import (
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -14,7 +15,7 @@ func Run(command []string, additions []Pair, inherited []string, stdout, stderr 
 	if len(command) == 0 || command[0] == "" { return 2, ErrInvalidCommand }
 	cmd := exec.Command(command[0], command[1:]...)
 	cmd.Env = extendEnvironment(inherited, additions)
-	cmd.Stdout, cmd.Stderr = stdout, stderr
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, stdout, stderr
 	configureChild(cmd)
 	if err := cmd.Run(); err != nil {
 		if exit, ok := err.(*exec.ExitError); ok { return exit.ExitCode(), ErrChildFailed }
