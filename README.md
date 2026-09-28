@@ -6,7 +6,16 @@ The master password is never persisted. The vault, derived key, and secret value
 
 ## Safe usage
 
-Initialize once, then use the interactive shell for normal work:
+On first use, run `envrune` with no command. It asks for confirmation before
+creating the encrypted vault, then securely asks you to set and confirm the
+master password. It never creates a vault unless you explicitly answer yes.
+
+```sh
+envrune
+```
+
+You can also initialize explicitly. After that, use the interactive shell for
+normal work:
 
 ```sh
 envrune init

@@ -19,8 +19,7 @@ import (
 
 func Execute(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(stderr, "usage: envrune <command>")
-		return 2
+		return executeOnboarding(stdout, stderr)
 	}
 	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		fmt.Fprintln(stdout, "Usage: envrune <command>")
