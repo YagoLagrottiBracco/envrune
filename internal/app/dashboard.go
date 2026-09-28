@@ -65,18 +65,22 @@ func (d *Dashboard) Close() {
 func (d *Dashboard) Snapshot() DashboardSnapshot {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	return snapshot(d.vault)
+}
+
+func snapshot(v *vault.Opened) DashboardSnapshot {
 	var snapshot DashboardSnapshot
-	if d.vault == nil {
+	if v == nil {
 		return snapshot
 	}
-	references := d.vault.References()
+	references := v.References()
 	sort.Slice(references, func(i, j int) bool { return references[i] < references[j] })
 	index := make(map[string]int, len(references))
 	for _, ref := range references {
 		index[ref.String()] = len(snapshot.References)
 		snapshot.References = append(snapshot.References, ReferenceMetadata{Name: ref.String()})
 	}
-	paths := d.vault.Projects()
+	paths := v.Projects()
 	sort.Strings(paths)
 	for _, path := range paths {
 		metadata := ProjectMetadata{Path: path}

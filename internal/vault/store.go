@@ -191,8 +191,23 @@ func (v *Opened) Commit() error {
 	return syncParent(filepath.Dir(v.path))
 }
 func (v *Opened) Close() {
+	if v == nil {
+		return
+	}
 	for i := range v.key {
 		v.key[i] = 0
 	}
-	v.lock.Close()
+	v.key = nil
+	for _, value := range v.data.Secrets {
+		for i := range value {
+			value[i] = 0
+		}
+	}
+	clear(v.data.Secrets)
+	v.data.Secrets = nil
+	v.data.Projects = nil
+	if v.lock != nil {
+		v.lock.Close()
+		v.lock = nil
+	}
 }
