@@ -76,7 +76,8 @@ Unlocking
 
 Teams and CI
   team init|whoami|keygen|members|add|remove|set|unset|list
-  push github [--env e] [--repo owner/name] [--github-env name]
+  pull vercel|1password [--env e] [options]   Copy values from a service into the vault
+  push github|vercel [--env e] [options]      Copy an environment to a service
   env [--env e] [--format sh|fish|powershell|json] [--no-prompt]
                               Print variables for eval or the Node and Python packages
   hook bash|zsh|fish|powershell                  Print a terminal hook

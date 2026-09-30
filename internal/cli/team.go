@@ -1,11 +1,8 @@
 package cli
 
 import (
-	"bytes"
 	"fmt"
 	"io"
-	"os/exec"
-	"strings"
 
 	"github.com/YagoLagrottiBracco/envrune/internal/app"
 	"github.com/YagoLagrottiBracco/envrune/internal/domain"
@@ -167,62 +164,5 @@ func executeTeamKeygen(stdout io.Writer, status Presenter) int {
 	fmt.Fprintln(stdout, identity)
 	status.Info("Store the line above as the ENVRUNE_IDENTITY secret of your CI, then add it with:")
 	status.Info("envrune team add ci " + public)
-	return 0
-}
-
-// push copies an environment to a CI provider's secret store.
-func (w Workspace) push(argv []string) int {
-	const usage = "push github [--env <environment>] [--repo <owner/name>] [--github-env <name>]"
-	if len(argv) == 0 || argv[0] != "github" {
-		return w.usageError(usage)
-	}
-	a, err := parseArgs(argv[1:], []string{"env", "repo", "github-env"}, nil, false)
-	if err != nil || len(a.positional) != 0 {
-		return w.usageError(usage)
-	}
-	if _, err := exec.LookPath("gh"); err != nil {
-		w.status().Error("The GitHub CLI (gh) is required. Install it and run `gh auth login`.")
-		return 1
-	}
-	_, resolved, err := w.resolve(a.options["env"])
-	defer wipePairs(resolved.Pairs)
-	if err != nil {
-		return w.fail(err, "Configured secrets are unavailable.")
-	}
-	for _, pair := range resolved.Pairs {
-		fmt.Fprintln(w.Stdout, pair.Name)
-	}
-	target := "the current repository"
-	if repo := a.options["repo"]; repo != "" {
-		target = repo
-	}
-	if env := a.options["github-env"]; env != "" {
-		target += " (environment " + env + ")"
-	}
-	w.status().Warn(fmt.Sprintf("These %d variables from %s will be stored as GitHub Actions secrets in %s.", len(resolved.Pairs), resolved.Environment, target))
-	if !w.confirm() {
-		w.status().Error("Confirmation is required.")
-		return 1
-	}
-	for _, pair := range resolved.Pairs {
-		args := []string{"secret", "set", pair.Name}
-		if repo := a.options["repo"]; repo != "" {
-			args = append(args, "--repo", repo)
-		}
-		if env := a.options["github-env"]; env != "" {
-			args = append(args, "--env", env)
-		}
-		// gh reads the value from standard input, so it never appears in
-		// the process list.
-		cmd := exec.Command("gh", args...)
-		cmd.Stdin = bytes.NewReader(pair.Value)
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		if err := cmd.Run(); err != nil {
-			w.status().Error(fmt.Sprintf("gh could not store %s: %s", pair.Name, strings.TrimSpace(stderr.String())))
-			return 1
-		}
-		w.status().Success(fmt.Sprintf("Stored %s.", pair.Name))
-	}
 	return 0
 }

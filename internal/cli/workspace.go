@@ -67,6 +67,7 @@ func init() {
 		"recovery": Workspace.recovery,
 		"team":     Workspace.team,
 		"push":     Workspace.push,
+		"pull":     Workspace.pull,
 		"env":      Workspace.env,
 		"unlock":   Workspace.unlock,
 		"ui":       Workspace.ui,

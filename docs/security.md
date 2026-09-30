@@ -140,7 +140,11 @@ Some operations necessarily touch plaintext:
   cloud sync; clipboard managers on other systems may still record it.
 - `env` and the terminal hook put values into a shell, where every command
   started from it can read them. `env` refuses to print to a terminal.
-- `push github` sends values to GitHub Actions secrets through `gh`.
+- `push` sends values to a service (GitHub Actions secrets through `gh`, or
+  Vercel over its HTTPS API), and `pull` brings values in from Vercel or
+  1Password. Values travel only over HTTPS or a CLI's standard streams, never
+  as command-line arguments or through files; that is why there is no push to
+  1Password. See [Pulling and pushing with services](providers.md).
 - A process launched by `run`, a named command, or `up` receives its resolved
   variables.
 

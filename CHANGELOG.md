@@ -20,6 +20,10 @@ All notable changes to EnvRune are listed here. The format follows
 - **`envrune guard`** blocks a commit whose staged changes add a vault or team
   value, naming the file, line, and reference. `guard install` adds it as a
   pre-commit hook; with the vault locked it warns, or blocks with `--strict`.
+- **`envrune pull` and `envrune push`** with providers: pull from Vercel (REST
+  API, `VERCEL_TOKEN`) and 1Password (`op`), push to Vercel and GitHub Actions.
+  `pull` shows new, changed, and unchanged variables without values, and
+  stores and links them after confirmation; `push github` keeps working.
 - **Packages for Node and Python** in `packages/` (not yet published) replace
   dotenv: `import "envrune/config"` and `envrune.load()` load variables from
   the vault through `envrune env --format json --no-prompt`, which is new, and

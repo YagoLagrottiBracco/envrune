@@ -183,7 +183,8 @@ turning it into a secret-bearing file.
 | `guard install` | Block commits that stage a vault value. |
 | `scan [path...]` | Find vault values already in files, logs, and Git history. |
 | `mcp` | MCP server for AI agents: run named commands with masked output, never read values. |
-| `team …` / `push github` | Share secrets through `envrune.team.json`; feed CI. |
+| `team …` | Share secrets through `envrune.team.json`. |
+| `pull vercel\|1password` / `push github\|vercel` | Copy values between the vault and a service. |
 | `recover` / `backup` / `restore` | Reset a forgotten password with the recovery key; keep encrypted copies. |
 | `export [--env e] [--output path] [--force]` | Deliberately create a plaintext dotenv file after confirmation. |
 | `ui [--port <port>] [--no-browser]` | Start the metadata-only local dashboard. |
@@ -205,6 +206,7 @@ output is already plain.
 | [Keeping values out of Git](docs/guard.md) | Block commits that contain vault values, and find old leaks. |
 | [AI agents](docs/mcp.md) | Let Claude Code, Cursor, or Copilot run commands with secrets they cannot read. |
 | [Replacing dotenv in code](docs/packages.md) | Load variables from the vault in Node or Python, like dotenv. |
+| [Pulling and pushing with services](docs/providers.md) | Bring values in from Vercel or 1Password; send them to Vercel or GitHub Actions. |
 | [Teams and CI](docs/teams-and-ci.md) | Share secrets with a team file and give pipelines access. |
 | [Windows and WSL](docs/wsl.md) | Keep one vault or two across Windows and WSL. |
 | [Local dashboard](docs/local-ui.md) | Understand the loopback UI, its token flow, and its limits. |
