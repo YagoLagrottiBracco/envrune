@@ -1,69 +1,55 @@
-import Image from "next/image";
+import Link from "next/link";
+import { sessionClient } from "@/lib/supabase/server";
 
-export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
+export default async function Home() {
+  const supabase = await sessionClient();
+  const { data } = await supabase.auth.getClaims();
+  if (!data?.claims) {
+    return (
+      <main className="mx-auto mt-24 max-w-xl px-4">
+        <h1 className="text-3xl font-semibold">EnvRune Cloud</h1>
+        <p className="mt-4">
+          Share secrets with your team without the server ever seeing them. Values are encrypted on your machine by the <code>envrune</code> CLI; this site
+          manages who can use them and shows who did what.
+        </p>
+        <p className="mt-6 flex gap-4">
+          <Link href="/login" className="rounded bg-neutral-900 px-4 py-2 text-white dark:bg-white dark:text-black">
+            Sign in
+          </Link>
+          <a href="https://github.com/YagoLagrottiBracco/envrune/blob/main/docs/cloud.md" className="px-4 py-2 underline">
+            How it works
           </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+        </p>
       </main>
-    </div>
+    );
+  }
+  const { data: memberships } = await supabase
+    .from("org_members")
+    .select("role, organizations(slug, name)")
+    .eq("user_id", data.claims.sub)
+    .neq("role", "removed");
+  return (
+    <main className="mx-auto mt-16 max-w-3xl px-4">
+      <h1 className="text-2xl font-semibold">Organizations</h1>
+      {!memberships?.length ? (
+        <p className="mt-4">
+          You are not in an organization yet. Create one with <code>envrune cloud org create &lt;name&gt;</code>, or ask an admin to add you.
+        </p>
+      ) : (
+        <ul className="mt-6 divide-y divide-neutral-300 dark:divide-neutral-700">
+          {memberships.map((m) => {
+            const org = m.organizations as unknown as { slug: string; name: string };
+            return (
+              <li key={org.slug} className="flex justify-between py-3">
+                <Link href={`/orgs/${org.slug}`} className="font-medium underline">
+                  {org.name}
+                </Link>
+                <span className="text-sm text-neutral-500">{m.role}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </main>
   );
 }
