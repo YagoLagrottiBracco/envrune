@@ -48,5 +48,14 @@
     "public_key": "6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=",
     "message": "AAAAFGVudnJ1bmUtcmVjaXBpZW50LXYxAAAAB21hY2hpbmUAAAAkMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDBhAAAABnRvazEyMwAAAD5hZ2UxcXlxc3pxZ3BxeXFzenFncHF5cXN6cWdwcXlxc3pxZ3BxeXFzenFncHF5cXN6cWdwcXlxczMyOTBncQAAAAAAAAAPc2hvcC9wcm9kdWN0aW9uAAAAEDE3OTAwMDAwMDAxMjM0NTY=",
     "signature": "LjzGBXZPtP1VyiV3/pYRQuyc65DMlqZdbgky3hlNOX12qol98CFdq/NAJPiqPrFJcm2xEvKn35b+BB4/GYhTDA=="
+  },
+  {
+    "kind": "token-secret",
+    "fields": {
+      "secret": "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU="
+    },
+    "public_key": "",
+    "message": "scPLMhvKZDvpWl3ANxW9iQq9OKwJKS9R5fc/NbSajAk=",
+    "signature": ""
   }
 ]

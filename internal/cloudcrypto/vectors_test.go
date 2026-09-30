@@ -53,6 +53,9 @@ func TestCrossLanguageVectors(t *testing.T) {
 		{Kind: "recipient", PublicKey: b64(account.Public), Message: b64(machine.signed()), Signature: b64(machine.Signature), Fields: map[string]any{
 			"kind": machine.Kind, "user_id": machine.UserID, "recipient_id": machine.RecipientID, "age_recipient": machine.AgeRecipient,
 			"signing_key": "", "scope": machine.Scope, "created_at_us": at.UnixMicro()}},
+		// The hash the server stores for a machine token's secret.
+		{Kind: "token-secret", Message: b64(HashTokenSecret(bytes.Repeat([]byte{5}, 32))), Fields: map[string]any{
+			"secret": b64(bytes.Repeat([]byte{5}, 32))}},
 	}
 	got, err := json.MarshalIndent(vectors, "", "  ")
 	if err != nil {

@@ -158,6 +158,11 @@ signatures that ends at the **organization root**:
        member account public key ‖ role ‖ scope (projects, environments) ‖ issued at)
   ```
 
+- To add a member, the admin's CLI asks the server for the member's account
+  key by email and shows its fingerprint; the admin confirms it with the new
+  member out of band (both run `envrune cloud whoami`) before signing. This
+  is the one moment a lying server could insert a key of its own, and the
+  fingerprint comparison is what catches it.
 - Before wrapping an environment key to a device, the CLI verifies: device
   certificate ← member's account key ← membership certificate ← … ← pinned
   root, and that the role and scope allow that environment.
