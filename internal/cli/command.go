@@ -1,10 +1,9 @@
 package cli
 
 import (
-	"errors"
+	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -63,6 +62,10 @@ Leaks
 AI agents
   mcp [--allow-args]          MCP server: run named commands with masked output
 
+Editors and prompts
+  inspect [--dir folder]      Describe envrune.yml as JSON, without values
+  status --format json|prompt Show the unlock state for editors and shell prompts
+
 Unlocking
   unlock [--ttl 8h]           Keep the vault unlocked for new terminals
   lock                        Forget the unlocked key now
@@ -88,7 +91,7 @@ ENVRUNE_IDENTITY, NO_COLOR.
 
 var builtinCommands = map[string]bool{
 	"help": true, "init": true, "project": true, "shell": true, "lock": true, "status": true,
-	"keychain": true, "recover": true, "backup": true, "restore": true, "hook": true, "guard": true, "mcp": true,
+	"keychain": true, "recover": true, "backup": true, "restore": true, "hook": true, "guard": true, "mcp": true, "inspect": true,
 }
 
 func isBuiltin(name string) bool { return builtinCommands[name] || isSessionCommand(name) }
@@ -120,7 +123,7 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 	case "lock":
 		return executeLock(status)
 	case "status":
-		return executeStatus(stdout, status)
+		return executeStatus(args[1:], stdout, status)
 	case "keychain":
 		return executeKeychain(args[1:], prompt.Read, status)
 	case "recover":
@@ -135,6 +138,8 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 		return executeGuard(args[1:], stdout, stderr)
 	case "mcp":
 		return executeMCP(args[1:], stderr)
+	case "inspect":
+		return executeInspect(args[1:], stdout, stderr)
 	case "diff", "types":
 		// Reads only envrune.yml, so it needs no unlock.
 		return Workspace{Stdout: stdout, Stderr: stderr}.Execute(args)
@@ -277,35 +282,105 @@ func executeLock(status Presenter) int {
 	return 0
 }
 
-func executeStatus(stdout io.Writer, status Presenter) int {
-	path, err := vaultPath(os.Getenv)
+// vaultStatus is what `envrune status` reports. Gathering it never unlocks
+// the vault, so it is fast enough for a shell prompt.
+type vaultStatus struct {
+	Vault            string    `json:"vault"`
+	Exists           bool      `json:"exists"`
+	Unlocked         bool      `json:"unlocked"` // an agent holds the key
+	Expires          time.Time `json:"expires,omitzero"`
+	RemainingSeconds int       `json:"remaining_seconds,omitempty"`
+	Keychain         bool      `json:"keychain"`
+	LockHolder       int       `json:"lock_holder,omitempty"`
+	Project          string    `json:"project,omitempty"`
+	DefaultEnv       string    `json:"default_env,omitempty"`
+}
+
+func readStatus(getenv func(string) string, dir string) (vaultStatus, error) {
+	path, err := vaultPath(getenv)
+	if err != nil {
+		return vaultStatus{}, err
+	}
+	s := vaultStatus{Vault: path}
+	if _, err := os.Stat(path); err == nil {
+		s.Exists = true
+	}
+	if expires, err := agent.Status(agent.Address(path)); err == nil {
+		s.Unlocked, s.Expires = true, expires
+		s.RemainingSeconds = max(0, int(time.Until(expires).Seconds()))
+	}
+	s.Keychain = keychainEnabled(path)
+	s.LockHolder = vault.LockHolder(path)
+	if projectPath, err := project.Find(dir); err == nil {
+		s.Project = projectPath
+		if config, err := project.Load(projectPath); err == nil {
+			if environment, err := app.ChooseEnvironment(config, ""); err == nil {
+				s.DefaultEnv = environment
+			}
+		}
+	}
+	return s, nil
+}
+
+// promptWord is the short state a shell prompt shows.
+func (s vaultStatus) promptWord() string {
+	switch {
+	case !s.Exists:
+		return "no vault"
+	case s.Unlocked:
+		remaining := time.Duration(s.RemainingSeconds) * time.Second
+		if remaining >= time.Hour {
+			return fmt.Sprintf("unlocked %dh", int(remaining.Hours()))
+		}
+		return fmt.Sprintf("unlocked %dm", int(remaining.Minutes()))
+	case s.Keychain:
+		return "keychain"
+	default:
+		return "locked"
+	}
+}
+
+func executeStatus(args []string, stdout io.Writer, status Presenter) int {
+	a, err := parseArgs(args, []string{"format"}, nil, false)
+	format := a.options["format"]
+	if err != nil || len(a.positional) != 0 || (format != "" && format != "text" && format != "json" && format != "prompt") {
+		status.Error("Usage: envrune status [--format text|json|prompt]")
+		return 2
+	}
+	s, err := readStatus(os.Getenv, ".")
 	if err != nil {
 		status.Error("Vault path is unavailable.")
 		return 1
 	}
-	fmt.Fprintf(stdout, "Vault:     %s\n", path)
-	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+	switch format {
+	case "json":
+		_ = json.NewEncoder(stdout).Encode(s)
+		return 0
+	case "prompt":
+		fmt.Fprintln(stdout, s.promptWord())
+		return 0
+	}
+	fmt.Fprintf(stdout, "Vault:     %s\n", s.Vault)
+	if !s.Exists {
 		fmt.Fprintln(stdout, "           not created yet; run `envrune init`")
 	}
-	if expires, err := agent.Status(agent.Address(path)); err == nil {
-		fmt.Fprintf(stdout, "Agent:     unlocked until %s\n", expires.Local().Format(time.DateTime))
+	if s.Unlocked {
+		fmt.Fprintf(stdout, "Agent:     unlocked until %s\n", s.Expires.Local().Format(time.DateTime))
 	} else {
 		fmt.Fprintln(stdout, "Agent:     locked")
 	}
-	if keychainEnabled(path) {
+	if s.Keychain {
 		fmt.Fprintln(stdout, "Keychain:  enabled")
 	} else {
 		fmt.Fprintln(stdout, "Keychain:  disabled")
 	}
-	if holder := vault.LockHolder(path); holder != 0 {
-		fmt.Fprintf(stdout, "File lock: held by PID %d\n", holder)
+	if s.LockHolder != 0 {
+		fmt.Fprintf(stdout, "File lock: held by PID %d\n", s.LockHolder)
 	}
-	if projectPath, err := project.Find("."); err == nil {
-		fmt.Fprintf(stdout, "Project:   %s\n", projectPath)
-		if config, err := project.Load(projectPath); err == nil {
-			if environment, err := app.ChooseEnvironment(config, ""); err == nil {
-				fmt.Fprintf(stdout, "Default:   %s\n", environment)
-			}
+	if s.Project != "" {
+		fmt.Fprintf(stdout, "Project:   %s\n", s.Project)
+		if s.DefaultEnv != "" {
+			fmt.Fprintf(stdout, "Default:   %s\n", s.DefaultEnv)
 		}
 	}
 	return 0
