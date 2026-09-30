@@ -49,19 +49,32 @@ needs them directly.
 
 ### 1. Install the CLI
 
-Download the archive for your platform from the
-[latest release](https://github.com/YagoLagrottiBracco/vault/releases/latest),
-extract it, and place the `envrune` binary (`envrune.exe` on Windows) in a
-directory on your `PATH`. Each release includes a `checksums.txt` file to
-verify the download.
+Download the installer for your system from the
+[latest release](https://github.com/YagoLagrottiBracco/vault/releases/latest):
 
-On Linux or macOS, for example:
+| System | Download | How to install |
+| --- | --- | --- |
+| **Windows** | `envrune_<version>_windows_setup.exe` | Run it. It installs for your user (no administrator prompt) and adds `envrune` to your `PATH`. |
+| **macOS** | `envrune_<version>_macos_universal.pkg` | Open it and follow the installer. Works on Apple Silicon and Intel. |
+| **Debian / Ubuntu** | `envrune_<version>_linux_<arch>.deb` | `sudo apt install ./envrune_<version>_linux_amd64.deb` |
+| **Fedora / RHEL** | `envrune_<version>_linux_<arch>.rpm` | `sudo dnf install ./envrune_<version>_linux_amd64.rpm` |
+
+On macOS or Linux you can also install with one command:
 
 ```sh
-tar -xzf envrune_<version>_linux_amd64.tar.gz
-sudo install envrune /usr/local/bin/envrune
+curl -fsSL https://raw.githubusercontent.com/YagoLagrottiBracco/vault/main/install.sh | sh
+```
+
+Then open a new terminal and check it:
+
+```sh
 envrune --help
 ```
+
+The installers are not code-signed yet. On Windows, SmartScreen may ask you to
+choose **More info → Run anyway**; on macOS, a blocked `.pkg` can be allowed
+from **System Settings → Privacy & Security → Open Anyway**. Portable archives
+(`.zip` / `.tar.gz`) and a `checksums.txt` file are attached to every release.
 
 Or build from a source checkout with Go 1.27:
 

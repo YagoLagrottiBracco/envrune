@@ -8,7 +8,13 @@ on:
 permissions:
   contents: write
 
+env:
+  GH_REPO: ${{ github.repository }}
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 jobs:
+  # Tests, cross-compiles, and creates a draft release with the archives and
+  # Linux packages.
   goreleaser:
     runs-on: ubuntu-latest
     steps:
@@ -27,3 +33,90 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  macos-installer:
+    needs: goreleaser
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build universal .pkg
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p build/root/usr/local/bin out
+          for arch in amd64 arm64; do
+            GOOS=darwin GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "build/envrune_$arch" ./cmd/envrune
+          done
+          lipo -create -output build/root/usr/local/bin/envrune build/envrune_amd64 build/envrune_arm64
+          chmod 0755 build/root/usr/local/bin/envrune
+          pkgbuild \
+            --root build/root \
+            --identifier io.github.yagolagrottibracco.envrune \
+            --version "$VERSION" \
+            --install-location / \
+            "out/envrune_${VERSION}_macos_universal.pkg"
+
+      - name: Upload to release
+        run: gh release upload "$GITHUB_REF_NAME" out/*.pkg --clobber
+
+  windows-installer:
+    needs: goreleaser
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build binaries
+        run: |
+          New-Item -ItemType Directory -Force build, out | Out-Null
+          $env:CGO_ENABLED = '0'
+          $env:GOOS = 'windows'
+          foreach ($arch in 'amd64', 'arm64') {
+            $env:GOARCH = $arch
+            go build -trimpath "-ldflags=-s -w" -o "build/envrune_$arch.exe" ./cmd/envrune
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+
+      - name: Build setup .exe
+        run: |
+          choco upgrade innosetup -y --no-progress
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          & $iscc "/DAppVersion=$version" "/DRepoDir=$PWD" "/DBinDir=$PWD\build" "/DOutputDir=$PWD\out" packaging\windows\envrune.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Upload to release
+        run: gh release upload $env:GITHUB_REF_NAME (Get-ChildItem out\*.exe).FullName --clobber
+
+  # Regenerates checksums over every asset, publishes the draft, and marks it
+  # as the latest release (pre-release tags such as v1.0.0-rc.1 are not).
+  publish:
+    needs: [macos-installer, windows-installer]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Regenerate checksums
+        run: |
+          mkdir assets
+          gh release download "$GITHUB_REF_NAME" -D assets
+          rm -f assets/checksums.txt
+          (cd assets && sha256sum -- * > ../checksums.txt)
+          cat checksums.txt
+          gh release upload "$GITHUB_REF_NAME" checksums.txt --clobber
+
+      - name: Publish release
+        run: |
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease
+          else
+            gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+          fi

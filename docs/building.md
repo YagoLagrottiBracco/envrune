@@ -49,6 +49,9 @@ envrune --help
 Tagged binary releases are produced by GoReleaser (`.goreleaser.yaml`) in the
 `release` GitHub Actions workflow whenever a `v*` tag is pushed. The workflow
 runs `go test ./...`, cross-compiles for Linux, macOS, and Windows on amd64 and
-arm64, and attaches the archives plus `checksums.txt` to the GitHub release.
+arm64, and builds the installers: `.deb` and `.rpm` packages, a universal
+macOS `.pkg`, and a Windows setup `.exe` (Inno Setup, from
+`packaging/windows/envrune.iss`). It then regenerates `checksums.txt` over
+every asset, publishes the release, and marks it as the latest.
 Treat a local `go build` result as a development build from the exact commit
 you checked out.
