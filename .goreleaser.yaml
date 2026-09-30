@@ -42,7 +42,7 @@ nfpms:
     file_name_template: "{{ .ProjectName }}_{{ .Version }}_linux_{{ .Arch }}"
     vendor: Yago Lagrotti Bracco
     maintainer: Yago Lagrotti Bracco
-    homepage: https://github.com/YagoLagrottiBracco/vault
+    homepage: https://github.com/YagoLagrottiBracco/envrune
     description: A deliberate command-line workspace for encrypted environment variables.
     license: Apache-2.0
     formats:
@@ -64,7 +64,7 @@ changelog:
 release:
   github:
     owner: YagoLagrottiBracco
-    name: vault
+    name: envrune
   # The workflow adds the macOS and Windows installers, then publishes the
   # release and marks it as latest.
   draft: true
@@ -77,15 +77,15 @@ release:
 
     | Platform | Installer | Portable |
     | --- | --- | --- |
-    | Windows (x64 and ARM64) | [Setup (.exe)](https://github.com/YagoLagrottiBracco/vault/releases/download/{{ .Tag }}/envrune_{{ .Version }}_windows_setup.exe) | [zip x64](https://github.com/YagoLagrottiBracco/vault/releases/download/{{ .Tag }}/envrune_{{ .Version }}_windows_amd64.zip) · [zip ARM64](https://github.com/YagoLagrottiBracco/vault/releases/download/{{ .Tag }}/envrune_{{ .Version }}_windows_arm64.zip) |
-    | macOS (Apple Silicon and Intel) | [Installer (.pkg)](https://github.com/YagoLagrottiBracco/vault/releases/download/{{ .Tag }}/envrune_{{ .Version }}_macos_universal.pkg) | [tar.gz Apple Silicon](https://github.com/YagoLagrottiBracco/vault/releases/download/{{ .Tag }}/envrune_{{ .Version }}_macos_arm64.tar.gz) · [tar.gz Intel](https://github.com/YagoLagrottiBracco/vault/releases/download/{{ .Tag }}/envrune_{{ .Version }}_macos_amd64.tar.gz) |
-    | Linux x64 | [deb](https://github.com/YagoLagrottiBracco/vault/releases/download/{{ .Tag }}/envrune_{{ .Version }}_linux_amd64.deb) · [rpm](https://github.com/YagoLagrottiBracco/vault/releases/download/{{ .Tag }}/envrune_{{ .Version }}_linux_amd64.rpm) | [tar.gz](https://github.com/YagoLagrottiBracco/vault/releases/download/{{ .Tag }}/envrune_{{ .Version }}_linux_amd64.tar.gz) |
-    | Linux ARM64 | [deb](https://github.com/YagoLagrottiBracco/vault/releases/download/{{ .Tag }}/envrune_{{ .Version }}_linux_arm64.deb) · [rpm](https://github.com/YagoLagrottiBracco/vault/releases/download/{{ .Tag }}/envrune_{{ .Version }}_linux_arm64.rpm) | [tar.gz](https://github.com/YagoLagrottiBracco/vault/releases/download/{{ .Tag }}/envrune_{{ .Version }}_linux_arm64.tar.gz) |
+    | Windows (x64 and ARM64) | [Setup (.exe)](https://github.com/YagoLagrottiBracco/envrune/releases/download/{{ .Tag }}/envrune_{{ .Version }}_windows_setup.exe) | [zip x64](https://github.com/YagoLagrottiBracco/envrune/releases/download/{{ .Tag }}/envrune_{{ .Version }}_windows_amd64.zip) · [zip ARM64](https://github.com/YagoLagrottiBracco/envrune/releases/download/{{ .Tag }}/envrune_{{ .Version }}_windows_arm64.zip) |
+    | macOS (Apple Silicon and Intel) | [Installer (.pkg)](https://github.com/YagoLagrottiBracco/envrune/releases/download/{{ .Tag }}/envrune_{{ .Version }}_macos_universal.pkg) | [tar.gz Apple Silicon](https://github.com/YagoLagrottiBracco/envrune/releases/download/{{ .Tag }}/envrune_{{ .Version }}_macos_arm64.tar.gz) · [tar.gz Intel](https://github.com/YagoLagrottiBracco/envrune/releases/download/{{ .Tag }}/envrune_{{ .Version }}_macos_amd64.tar.gz) |
+    | Linux x64 | [deb](https://github.com/YagoLagrottiBracco/envrune/releases/download/{{ .Tag }}/envrune_{{ .Version }}_linux_amd64.deb) · [rpm](https://github.com/YagoLagrottiBracco/envrune/releases/download/{{ .Tag }}/envrune_{{ .Version }}_linux_amd64.rpm) | [tar.gz](https://github.com/YagoLagrottiBracco/envrune/releases/download/{{ .Tag }}/envrune_{{ .Version }}_linux_amd64.tar.gz) |
+    | Linux ARM64 | [deb](https://github.com/YagoLagrottiBracco/envrune/releases/download/{{ .Tag }}/envrune_{{ .Version }}_linux_arm64.deb) · [rpm](https://github.com/YagoLagrottiBracco/envrune/releases/download/{{ .Tag }}/envrune_{{ .Version }}_linux_arm64.rpm) | [tar.gz](https://github.com/YagoLagrottiBracco/envrune/releases/download/{{ .Tag }}/envrune_{{ .Version }}_linux_arm64.tar.gz) |
 
     **One-line install (macOS and Linux):**
 
     ```sh
-    curl -fsSL https://raw.githubusercontent.com/YagoLagrottiBracco/vault/main/install.sh | sh
+    curl -fsSL https://raw.githubusercontent.com/YagoLagrottiBracco/envrune/main/install.sh | sh
     ```
 
     **After installing**, open a new terminal and run `envrune` to create your vault.

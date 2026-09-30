@@ -1,14 +1,14 @@
 #!/bin/sh
 # Installs the latest EnvRune release on macOS or Linux.
 #
-#   curl -fsSL https://raw.githubusercontent.com/YagoLagrottiBracco/vault/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/YagoLagrottiBracco/envrune/main/install.sh | sh
 #
 # Environment:
 #   ENVRUNE_VERSION      version to install, such as 0.1.0 (default: latest)
 #   ENVRUNE_INSTALL_DIR  destination directory (default: /usr/local/bin)
 set -eu
 
-REPO="YagoLagrottiBracco/vault"
+REPO="YagoLagrottiBracco/envrune"
 INSTALL_DIR="${ENVRUNE_INSTALL_DIR:-/usr/local/bin}"
 
 fail() { printf 'envrune install: %s\n' "$1" >&2; exit 1; }

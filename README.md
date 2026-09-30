@@ -50,7 +50,7 @@ needs them directly.
 ### 1. Install the CLI
 
 Download the installer for your system from the
-[latest release](https://github.com/YagoLagrottiBracco/vault/releases/latest):
+[latest release](https://github.com/YagoLagrottiBracco/envrune/releases/latest):
 
 | System | Download | How to install |
 | --- | --- | --- |
@@ -62,7 +62,7 @@ Download the installer for your system from the
 On macOS or Linux you can also install with one command:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/YagoLagrottiBracco/vault/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/YagoLagrottiBracco/envrune/main/install.sh | sh
 ```
 
 Then open a new terminal and check it:
@@ -211,7 +211,7 @@ verification, and the distinction between a source build and a release asset.
 ## Releases
 
 Prebuilt binaries for Linux, macOS, and Windows (amd64 and arm64) are
-published on the [releases page](https://github.com/YagoLagrottiBracco/vault/releases).
+published on the [releases page](https://github.com/YagoLagrottiBracco/envrune/releases).
 Releases are built by GitHub Actions whenever a `v*` tag is pushed:
 
 ```sh
