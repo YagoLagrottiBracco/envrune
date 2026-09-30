@@ -42,6 +42,7 @@ Secrets
 
 Projects
   link <VAR> <reference> [--env e]  Bind a variable; offers to create the secret
+  setup [--env e]             Walk through the variables documented in envrune.yml
   usage <reference>           Show which projects use a reference
   run [--env e] [--no-redact] [--] <command>
                               Run a command; values it prints show as ****

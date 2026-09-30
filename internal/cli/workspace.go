@@ -59,6 +59,7 @@ func init() {
 		"history":  Workspace.history,
 		"doctor":   Workspace.doctor,
 		"scan":     Workspace.scan,
+		"setup":    Workspace.setup,
 		"passwd":   Workspace.passwd,
 		"recovery": Workspace.recovery,
 		"team":     Workspace.team,

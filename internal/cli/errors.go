@@ -23,6 +23,7 @@ import (
 func describe(err error, fallback string) string {
 	var busy *vault.BusyError
 	var missingSecret *app.MissingSecretError
+	var invalidVariables *app.InvalidVariablesError
 	var missingEnvironment *app.MissingEnvironmentError
 	var noEnvironment *app.NoEnvironmentChosenError
 	var configErr *project.ConfigError
@@ -45,6 +46,8 @@ func describe(err error, fallback string) string {
 		return "The vault file was replaced by another process. Lock this session and unlock it again."
 	case errors.As(err, &missingSecret):
 		return sentence(err.Error()) + " Store it with `envrune set <reference>`."
+	case errors.As(err, &invalidVariables):
+		return sentence(err.Error()) + " Run `envrune setup` to fix it, or see variables: in envrune.yml."
 	case errors.As(err, &missingEnvironment), errors.As(err, &noEnvironment), errors.As(err, &configErr):
 		return sentence(err.Error())
 	case errors.Is(err, ErrLocked):

@@ -4,6 +4,21 @@ version: 1
 project: shop
 default_env: development
 
+# What each variable is and how to get it; `envrune setup` walks a new
+# developer through them, and commands refuse values that do not fit.
+variables:
+  DATABASE_URL:
+    description: Postgres database shared by the API and the backend
+    how_to_get: Run `docker compose up db` for a local one
+    type: url
+    format: ^postgres(ql)?://
+  STRIPE_KEY:
+    description: Stripe secret key
+    how_to_get: Stripe dashboard, Developers, API keys
+    format: ^sk_(test|live)_
+  JWT_SECRET:
+    description: Signs session tokens; generate one with `envrune generate`
+
 commands:
   api:
     run: .venv/bin/python -m uvicorn main:app --reload --port 8000

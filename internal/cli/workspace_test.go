@@ -375,3 +375,66 @@ func TestDoctorListsValuesTooShortToMask(t *testing.T) {
 		t.Fatalf("doctor output = %s", f.output())
 	}
 }
+
+const variablesConfig = `version: 1
+project: shop
+default_env: development
+variables:
+  DATABASE_URL:
+    description: Postgres for the app
+    how_to_get: Run make db
+    type: url
+  STRIPE_KEY:
+    format: ^sk_test_
+  LOG_LEVEL:
+    required: false
+environments:
+  development: {}
+`
+
+func TestRunChecksDocumentedVariables(t *testing.T) {
+	f := newFixture(t, variablesConfig)
+	if err := f.session.Set("shop.db", []byte("not-a-url-secret")); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.session.Link(f.projectPath, "development", "DATABASE_URL", "shop.db"); err != nil {
+		t.Fatal(err)
+	}
+	if code := f.run("run", "--", "anything"); code == 0 {
+		t.Fatalf("run started with invalid variables: %s", f.output())
+	}
+	out := f.output()
+	for _, want := range []string{"DATABASE_URL (shop.db) is not a URL", "STRIPE_KEY is required but not linked in development", "envrune setup"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("run output misses %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "not-a-url-secret") || strings.Contains(out, "LOG_LEVEL") {
+		t.Fatalf("run output = %s", out)
+	}
+}
+
+func TestSetupGuidesThroughEachVariable(t *testing.T) {
+	f := newFixture(t, variablesConfig)
+	// DATABASE_URL: accept the suggested reference, give an invalid value,
+	// then a valid one. STRIPE_KEY: choose a reference. LOG_LEVEL: skip.
+	f.choices = []string{"", "shop.stripe.test", "n"}
+	f.secrets = []string{"nope", "nope", "postgres://db/app", "postgres://db/app", "sk_test_123", "sk_test_123"}
+	if code := f.run("setup"); code != 0 {
+		t.Fatalf("setup = %d:\n%s", code, f.output())
+	}
+	out := f.output()
+	for _, want := range []string{"Postgres for the app", "How to get it: Run make db", "Expected: a URL", "That value is not a URL", "DATABASE_URL is ready (shop.database-url.development)", "STRIPE_KEY is ready (shop.stripe.test)", "2 of 3 variables are ready"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("setup output misses %q:\n%s", want, out)
+		}
+	}
+	resolved, err := f.session.Resolve(f.projectPath, "")
+	if err != nil || len(resolved.Pairs) != 2 {
+		t.Fatalf("Resolve() after setup = %+v, %v", resolved, err)
+	}
+	f.choices, f.secrets = []string{"n"}, nil
+	if code := f.run("setup"); code != 0 || !strings.Contains(f.output(), "DATABASE_URL is ready") {
+		t.Fatalf("second setup = %d:\n%s", code, f.output())
+	}
+}

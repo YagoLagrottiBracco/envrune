@@ -81,6 +81,7 @@ type Config struct {
 	DefaultEnv   string
 	Commands     map[string]Command
 	Up           []string
+	Variables    []Variable // in the order envrune.yml lists them
 	Environments map[string]map[string]domain.Reference
 }
 
@@ -156,6 +157,10 @@ func parseDocument(root *yaml.Node) (Config, error) {
 			}
 		case "up":
 			if out.Up, err = parseUp(v); err != nil {
+				return Config{}, err
+			}
+		case "variables":
+			if out.Variables, err = parseVariables(v); err != nil {
 				return Config{}, err
 			}
 		case "environments":

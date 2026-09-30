@@ -177,5 +177,58 @@ func resolve(src *sources, projectPath, requested string) (Resolved, error) {
 		wipePairs(pairs)
 		return Resolved{}, &MissingSecretError{Environment: environment, Missing: missing}
 	}
+	if problems := checkVariables(config, environment, pairs); len(problems) > 0 {
+		wipePairs(pairs)
+		return Resolved{}, &InvalidVariablesError{Environment: environment, Problems: problems}
+	}
 	return Resolved{Environment: environment, Pairs: pairs}, nil
+}
+
+// VariableProblem is a variable whose value does not fit what variables:
+// in envrune.yml says about it. Reason never contains the value.
+type VariableProblem struct {
+	Variable  string
+	Reference domain.Reference // empty when the variable is not linked
+	Reason    string
+}
+
+// InvalidVariablesError means values failed the checks of variables:, so
+// the command did not start.
+type InvalidVariablesError struct {
+	Environment string
+	Problems    []VariableProblem
+}
+
+func (e *InvalidVariablesError) Error() string {
+	parts := make([]string, len(e.Problems))
+	for i, p := range e.Problems {
+		if p.Reference == "" {
+			parts[i] = fmt.Sprintf("%s %s", p.Variable, p.Reason)
+		} else {
+			parts[i] = fmt.Sprintf("%s (%s) %s", p.Variable, p.Reference, p.Reason)
+		}
+	}
+	return fmt.Sprintf("environment %q: %s", e.Environment, strings.Join(parts, "; "))
+}
+
+func checkVariables(config project.Config, environment string, pairs []runner.Pair) []VariableProblem {
+	mappings := config.Environments[environment]
+	var problems []VariableProblem
+	for _, v := range config.Variables {
+		ref, linked := mappings[v.Name]
+		if !linked {
+			if v.Required {
+				problems = append(problems, VariableProblem{Variable: v.Name, Reason: "is required but not linked in " + environment})
+			}
+			continue
+		}
+		for _, pair := range pairs {
+			if pair.Name == v.Name {
+				if reason := v.Check(pair.Value); reason != "" {
+					problems = append(problems, VariableProblem{Variable: v.Name, Reference: ref, Reason: reason})
+				}
+			}
+		}
+	}
+	return problems
 }
