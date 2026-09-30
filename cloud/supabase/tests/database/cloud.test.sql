@@ -4,7 +4,7 @@
 -- member. Signatures are placeholders: the database does not check them;
 -- the API and every client do.
 begin;
-select plan(32);
+select plan(34);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'alice@example.com'),
@@ -103,6 +103,14 @@ select is(jsonb_array_length(public.fetch_environment(:'env', 'dave-laptop')->'s
 select is(jsonb_array_length(public.fetch_environment(:'env', 'dave-laptop')->'wrapped_keys'), 1, 'a consumer gets their wrapped key');
 select throws_ok(format($$ select public.put_secret_version(%L, 'stripe-key', 2, 1, decode(repeat('00', 24), 'hex'), 'x', 'dave-laptop', pg_temp.sig()) $$, :'env'),
   '42501', null, 'a consumer cannot write');
+select lives_ok(format($$ select public.put_wrapped_keys(%L, 1, 'dave-laptop', jsonb_build_array(
+    jsonb_build_object('recipient_user_id', '00000000-0000-0000-0000-00000000000d', 'recipient_id', 'dave-desktop',
+      'wrapped', encode('x', 'base64'), 'signature', encode(pg_temp.sig(), 'base64')))) $$, :'env'),
+  'a consumer shares the key with their own new device');
+select throws_ok(format($$ select public.put_wrapped_keys(%L, 1, 'dave-laptop', jsonb_build_array(
+    jsonb_build_object('recipient_user_id', '00000000-0000-0000-0000-00000000000c', 'recipient_id', 'carol-laptop',
+      'wrapped', encode('x', 'base64'), 'signature', encode(pg_temp.sig(), 'base64')))) $$, :'env'),
+  '42501', null, 'a consumer cannot share the key with someone else');
 
 -- bob removes dave: no more keys for dave, and guided rotation starts.
 select pg_temp.become('00000000-0000-0000-0000-00000000000b');

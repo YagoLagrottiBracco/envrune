@@ -189,7 +189,11 @@ wrapping record = { environment id, epoch, recipient id, wrapped key,
 ```
 
 Clients accept a wrapped key only if the signature is by a trusted device of
-a member allowed to administer that environment (owner, admin, maintainer).
+a member allowed to administer that environment (owner, admin, maintainer),
+or by another trusted device of the recipient themselves: when a user
+approves a new device, their existing device shares the keys it already has.
+The database enforces the same rule: only administrators wrap keys for
+someone else.
 
 ### Secret values
 

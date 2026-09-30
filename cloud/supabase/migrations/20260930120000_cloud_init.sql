@@ -510,23 +510,33 @@ end $$;
 -- ---------------------------------------------------------------- keys and values
 
 -- Stores wrapped copies of the current epoch's key, made by a device of the
--- caller, who must administer the environment. Rows are JSON objects with
--- recipient_user_id or recipient_token_id, recipient_id, and base64 wrapped
--- and signature.
+-- caller. Administrators share with any member or token that may use the
+-- environment; any member shares with their own devices, such as a newly
+-- approved laptop. Rows are JSON objects with recipient_user_id or
+-- recipient_token_id, recipient_id, and base64 wrapped and signature.
 create or replace function public.put_wrapped_keys(p_env uuid, p_epoch bigint, p_device text, p_keys jsonb) returns void
 language plpgsql security definer set search_path = '' as $$
-declare me uuid := private.caller(); info record; k jsonb;
+declare me uuid := private.caller(); info record; k jsonb; admin boolean;
 begin
   select * into info from private.env_info(p_env);
-  if not private.can_administer(p_env, me) then
+  admin := private.can_administer(p_env, me);
+  if not admin and not private.can_use(p_env, me) then
     raise exception 'you cannot share this environment''s key' using errcode = '42501';
   end if;
   if p_epoch <> info.epoch then
     raise exception 'epoch % is not the current one (%)', p_epoch, info.epoch using errcode = '40001';
   end if;
   for k in select * from jsonb_array_elements(p_keys) loop
+    if not admin and ((k->>'recipient_user_id') is null or (k->>'recipient_user_id')::uuid <> me) then
+      raise exception 'only administrators share keys with others' using errcode = '42501';
+    end if;
     if (k->>'recipient_user_id') is not null and not private.can_use(p_env, (k->>'recipient_user_id')::uuid) then
       raise exception 'that member cannot use this environment' using errcode = '42501';
+    end if;
+    if (k->>'recipient_token_id') is not null and not exists (
+        select 1 from public.machine_tokens t where t.id = k->>'recipient_token_id' and t.org_id = info.org_id
+          and t.revoked_at is null and private.scope_allows(t.scope, info.project, info.env)) then
+      raise exception 'that token cannot use this environment' using errcode = '42501';
     end if;
     insert into public.wrapped_keys (environment_id, epoch, recipient_user_id, recipient_token_id, recipient_id,
       wrapped, wrapper_user_id, wrapper_device_id, signature)
