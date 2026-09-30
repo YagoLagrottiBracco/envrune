@@ -9,5 +9,3 @@ func childCommand(path string, command []string) (*exec.Cmd, error) {
 	cmd.Args[0] = command[0]
 	return cmd, nil
 }
-
-func ChildExec(_ []string) int { return 2 }

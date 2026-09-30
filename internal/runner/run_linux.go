@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"syscall"
 
+	"github.com/YagoLagrottiBracco/envrune/internal/proc"
 	"golang.org/x/sys/unix"
 )
 
@@ -18,12 +19,16 @@ func childCommand(path string, command []string) (*exec.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
-	args := append([]string{"__envrune_exec", "--", path}, command...)
+	args := append([]string{execHelper, "--", path}, command...)
 	return exec.Command(self, args...), nil
 }
 
-// ChildExec receives "--", the resolved executable path, then the argv.
-func ChildExec(args []string) int {
+func init() { proc.Helper(execHelper, childExec) }
+
+const execHelper = "__envrune_exec"
+
+// childExec receives "--", the resolved executable path, then the argv.
+func childExec(args []string) int {
 	if len(args) < 3 || args[0] != "--" {
 		return 2
 	}

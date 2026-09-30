@@ -11,12 +11,16 @@ import (
 	"github.com/YagoLagrottiBracco/envrune/internal/proc"
 )
 
+const helper = "__agent"
+
+func init() { proc.Helper(helper, serve) }
+
 // Start launches a detached agent that holds key for ttl, then waits until it
 // answers.
 func Start(socketPath string, key []byte, ttl time.Duration) error {
 	input := []byte(hex.EncodeToString(key) + "\n")
 	defer wipe(input)
-	if err := proc.StartDetached([]string{"__agent", socketPath, ttl.String()}, input); err != nil {
+	if err := proc.StartDetached([]string{helper, socketPath, ttl.String()}, input); err != nil {
 		return err
 	}
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
@@ -27,9 +31,9 @@ func Start(socketPath string, key []byte, ttl time.Duration) error {
 	return errors.New("the agent did not start")
 }
 
-// Main is the entry point of the detached agent process: args are the socket
-// path and the time to live; the hex key arrives on standard input.
-func Main(args []string) int {
+// serve is the entry point of the detached agent process: args are the
+// address and the time to live; the hex key arrives on standard input.
+func serve(args []string) int {
 	if len(args) != 2 {
 		return 2
 	}

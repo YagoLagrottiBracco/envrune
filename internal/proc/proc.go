@@ -33,3 +33,14 @@ func StartDetached(args []string, input []byte) error {
 	}
 	return cerr
 }
+
+// Helper runs fn and exits when this process was started as the helper
+// named name, which Envrune passes as the first argument when it starts
+// itself again. Packages call it from init, so any binary that links them,
+// test binaries included, turns into the helper before running anything
+// else instead of starting over as the whole program.
+func Helper(name string, fn func(args []string) int) {
+	if len(os.Args) > 1 && os.Args[1] == name {
+		os.Exit(fn(os.Args[2:]))
+	}
+}

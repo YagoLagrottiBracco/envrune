@@ -28,13 +28,17 @@ func Copy(value []byte, delay time.Duration) error {
 		return err
 	}
 	sum := sha256.Sum256(value)
-	return proc.StartDetached([]string{"__clipboard-clear", delay.String()}, []byte(hex.EncodeToString(sum[:])+"\n"))
+	return proc.StartDetached([]string{helper, delay.String()}, []byte(hex.EncodeToString(sum[:])+"\n"))
 }
 
-// ClearMain is the entry point of the background cleaner: it waits, then
+const helper = "__clipboard-clear"
+
+func init() { proc.Helper(helper, clearLater) }
+
+// clearLater is the entry point of the background cleaner: it waits, then
 // clears the clipboard if it still holds the value whose SHA-256 arrives on
 // standard input, so something copied later is left alone.
-func ClearMain(args []string) int {
+func clearLater(args []string) int {
 	if len(args) != 1 {
 		return 2
 	}
