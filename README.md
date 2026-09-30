@@ -47,9 +47,23 @@ needs them directly.
 
 ## Get started
 
-### 1. Build the CLI
+### 1. Install the CLI
 
-For now, build from a source checkout with Go 1.27:
+Download the archive for your platform from the
+[latest release](https://github.com/YagoLagrottiBracco/vault/releases/latest),
+extract it, and place the `envrune` binary (`envrune.exe` on Windows) in a
+directory on your `PATH`. Each release includes a `checksums.txt` file to
+verify the download.
+
+On Linux or macOS, for example:
+
+```sh
+tar -xzf envrune_<version>_linux_amd64.tar.gz
+sudo install envrune /usr/local/bin/envrune
+envrune --help
+```
+
+Or build from a source checkout with Go 1.27:
 
 ```sh
 go build -trimpath -o bin/envrune ./cmd/envrune
@@ -183,8 +197,16 @@ verification, and the distinction between a source build and a release asset.
 
 ## Releases
 
-**Status: source pre-release.** This checkout has no tagged binary release.
-Build from the checked-out source and treat `main` as active development.
+Prebuilt binaries for Linux, macOS, and Windows (amd64 and arm64) are
+published on the [releases page](https://github.com/YagoLagrottiBracco/vault/releases).
+Releases are built by GitHub Actions whenever a `v*` tag is pushed:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Treat `main` as active development.
 
 ## License
 

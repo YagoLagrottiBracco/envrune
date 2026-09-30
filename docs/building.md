@@ -46,7 +46,9 @@ envrune --help
 
 ## Release status
 
-This checkout has no tagged binary release. This guide covers the source-build
-path only, so it makes no claim about platform coverage beyond the build you
-perform yourself. Treat a local `go build` result as a development build from
-the exact commit you checked out.
+Tagged binary releases are produced by GoReleaser (`.goreleaser.yaml`) in the
+`release` GitHub Actions workflow whenever a `v*` tag is pushed. The workflow
+runs `go test ./...`, cross-compiles for Linux, macOS, and Windows on amd64 and
+arm64, and attaches the archives plus `checksums.txt` to the GitHub release.
+Treat a local `go build` result as a development build from the exact commit
+you checked out.
