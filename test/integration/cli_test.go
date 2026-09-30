@@ -315,3 +315,50 @@ func TestRunMasksTheValuesItInjects(t *testing.T) {
 		t.Fatalf("run printed the value:\n%s", out)
 	}
 }
+
+func TestGuardHookBlocksACommitWithAValue(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	h := newHarness(t)
+	h.set("stripe.key", "sk_live_committed_by_mistake")
+	repo := filepath.Join(h.root, "repo")
+	git := func(args ...string) (string, error) {
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		cmd.Env = h.environ()
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	for _, kv := range [][2]string{{"user.email", "t@example.com"}, {"user.name", "T"}, {"commit.gpgsign", "false"}} {
+		if out, err := git("config", kv[0], kv[1]); err != nil {
+			t.Fatalf("git config: %v\n%s", err, out)
+		}
+	}
+	if out, code := h.run(repo, "guard", "install"); code != 0 {
+		t.Fatalf("guard install = %d:\n%s", code, out)
+	}
+	write := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(repo, name), []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if out, err := git("add", name); err != nil {
+			t.Fatalf("git add: %v\n%s", err, out)
+		}
+	}
+	write("README.md", "hello\n")
+	if out, err := git("commit", "-q", "-m", "clean"); err != nil {
+		t.Fatalf("a clean commit was blocked: %v\n%s", err, out)
+	}
+	write("settings.py", "STRIPE_KEY = 'sk_live_committed_by_mistake'\n")
+	out, err := git("commit", "-q", "-m", "leak")
+	if err == nil {
+		t.Fatalf("the commit with a value went through:\n%s", out)
+	}
+	expect(t, out, "settings.py:1 contains the value of stripe.key", "Commit blocked")
+	if strings.Contains(out, "committed_by_mistake") {
+		t.Fatalf("the hook printed the value:\n%s", out)
+	}
+}

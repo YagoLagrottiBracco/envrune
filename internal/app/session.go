@@ -10,6 +10,7 @@ import (
 	"github.com/YagoLagrottiBracco/envrune/internal/dotenv"
 	"github.com/YagoLagrottiBracco/envrune/internal/generator"
 	"github.com/YagoLagrottiBracco/envrune/internal/project"
+	"github.com/YagoLagrottiBracco/envrune/internal/redact"
 	"github.com/YagoLagrottiBracco/envrune/internal/runner"
 	"github.com/YagoLagrottiBracco/envrune/internal/team"
 	"github.com/YagoLagrottiBracco/envrune/internal/vault"
@@ -223,6 +224,42 @@ func (s *Session) Reveal(projectPath, rawReference string) ([]byte, error) {
 		return nil, vault.ErrUnknownReference
 	}
 	return value, nil
+}
+
+// Secrets returns every value the session can read, named by reference, so
+// guard and scan can look for them. Team values from the project's team file
+// are included when projectPath is set and this user is a member. The caller
+// wipes the values.
+func (s *Session) Secrets(projectPath string) ([]redact.Secret, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.refresh(); err != nil {
+		return nil, err
+	}
+	src := s.sources()
+	defer src.close()
+	var out []redact.Secret
+	if s.vault != nil {
+		for _, ref := range s.vault.References() {
+			if value, ok := s.vault.Value(ref); ok {
+				out = append(out, redact.Secret{Name: ref.String(), Value: value})
+			}
+		}
+	}
+	if projectPath != "" {
+		if file, err := src.teamFile(projectPath); err == nil {
+			for _, name := range file.References() {
+				ref, err := domain.ParseReference(name)
+				if err != nil {
+					continue
+				}
+				if value, ok := file.Value(ref); ok {
+					out = append(out, redact.Secret{Name: name, Value: value})
+				}
+			}
+		}
+	}
+	return out, nil
 }
 
 func (s *Session) Link(projectPath, environment, variable, rawReference string) error {

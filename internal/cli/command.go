@@ -43,11 +43,16 @@ Secrets
 Projects
   link <VAR> <reference> [--env e]  Bind a variable; offers to create the secret
   usage <reference>           Show which projects use a reference
-  run [--env e] [--] <command>      Run a command with the environment
+  run [--env e] [--no-redact] [--] <command>
+                              Run a command; values it prints show as ****
   <name> [args]               Run a command defined under commands: in envrune.yml
   up [name...] [--env e]      Run several commands at once
   export [--env e] [--output path] [--force]
   doctor                      Check the vault, envrune.yml, and bindings
+
+Leaks
+  guard [--strict]            Block staged changes that contain vault values
+  guard install|uninstall     Run guard before every commit in this repository
 
 Unlocking
   unlock [--ttl 8h]           Keep the vault unlocked for new terminals
@@ -72,7 +77,7 @@ ENVRUNE_IDENTITY, NO_COLOR.
 
 var builtinCommands = map[string]bool{
 	"help": true, "init": true, "project": true, "shell": true, "lock": true, "status": true,
-	"keychain": true, "recover": true, "backup": true, "restore": true, "hook": true,
+	"keychain": true, "recover": true, "backup": true, "restore": true, "hook": true, "guard": true,
 }
 
 func isBuiltin(name string) bool { return builtinCommands[name] || isSessionCommand(name) }
@@ -115,6 +120,8 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 		return executeRestore(args[1:], prompt.Read, status)
 	case "hook":
 		return executeHook(args[1:], stdout, stderr)
+	case "guard":
+		return executeGuard(args[1:], stdout, stderr)
 	case "__project-root":
 		return projectRoot(stdout)
 	case "team":
