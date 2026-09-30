@@ -85,6 +85,14 @@ Teams and CI
                               Print variables for eval or the Node and Python packages
   hook bash|zsh|fish|powershell                  Print a terminal hook
 
+EnvRune Cloud (end-to-end encrypted sharing; run envrune cloud for details)
+  login [--server url]        Sign this vault in through the browser
+  logout                      Forget the session; this device's keys stay
+  cloud whoami|init|recover   Your account, this device, and their fingerprints
+  cloud device|org|member|project|env ...  Devices, organizations, and members
+  cloud set|copy|pull|sync|share|rotate ... Secrets, verified on this device
+  cloud token create|revoke   Machine tokens for CI
+
 Environment variables: ENVRUNE_VAULT, ENVRUNE_PASSWORD_FILE, ENVRUNE_PASSWORD,
 ENVRUNE_IDENTITY, NO_COLOR.
 `

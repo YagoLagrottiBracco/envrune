@@ -2,7 +2,9 @@
 
 Status: **approved for the MVP**, with the proposals under
 [Open questions](#open-questions-for-review) adopted; they can be revisited.
-Implementation: `internal/cloudcrypto` (primitives). This document
+Implementation: `internal/cloudcrypto` (primitives), `internal/cloud` (the
+CLI's client: verification, the local cache, and every operation below),
+`cloud/web` (API and panel), `cloud/supabase` (schema). This document
 describes how EnvRune Cloud shares secrets between the members of a team so
 that the server never sees a value or a key that decrypts one.
 
@@ -126,11 +128,15 @@ device certificate = sign(account key,
 
 A new device gets its certificate in one of two ways:
 
-1. **Approval by a trusted device.** The new device uploads a request; the
-   user runs `envrune device approve` on a trusted device. Both screens show
-   the same fingerprint of the new device's keys, and the user confirms they
-   match. The trusted device signs the certificate and wraps the environment
-   keys this user holds to the new device.
+1. **Approval by a trusted device.** The new device uploads a request
+   (`envrune cloud init`); the user runs `envrune cloud device approve <id>`
+   on a trusted device. Both screens show the same fingerprint of the new
+   device's keys, and the user confirms they match. The trusted device signs
+   the certificate, encrypts the account private key to the new device with
+   age (so it can certify devices and sign memberships too), and wraps the
+   environment keys this user holds to it. The new device accepts the
+   account key only if it is the registered one and it certified exactly
+   this device's keys.
 2. **Recovery.** The user types the recovery key on the new device, which
    decrypts the account key backup, signs its own certificate, and uses the
    recovery age identity to unwrap the environment keys wrapped for this
@@ -148,7 +154,7 @@ signatures that ends at the **organization root**:
 
 - Creating an organization pins the founder's account public key as its
   root. Each member's CLI stores the root the first time it joins, and shows
-  its fingerprint (`envrune org show`); an invitation link also carries it,
+  its fingerprint (`envrune cloud org show`); an invitation link also carries it,
   so a member can compare it out of band.
 - A **membership certificate** is signed by the root or by an admin whose own
   membership certificate chains to the root:
@@ -249,17 +255,20 @@ Only step 3 protects the values they already knew.
 
 ## Machine tokens (CI and deploys)
 
-`envrune cloud token create --project shop --env production --expires 90d`
+`envrune cloud token create acme --scope shop/production --expires 90d`
 generates, on the admin's machine, a new age identity and signing key for
 the machine, wraps the environment key to it, and prints one token:
 
 ```text
-envrune_mt_<token id>_<API secret>_<age identity>
+envrune_mt_<token id>.<API secret>.<age identity>.<org id>~<root user id>:<root key>~…
 ```
 
 The server stores the token id, a hash of the API secret, the machine's
 public keys, its scope, and its expiry. Only the CI system holds the private
-age identity. Revoking a token removes its access and marks the environment
+age identity. The token also carries the organization's pinned roots, and
+fetching an environment returns its membership certificates, so a CI job
+verifies who wrapped the key and wrote each value the same way a member's
+CLI does, with no local state. Revoking a token removes its access and marks the environment
 for rotation, since the machine held the key.
 
 ## Local cache and offline use
@@ -318,7 +327,8 @@ versions, who changed what, and rotation state, and it cannot add a
 member's key to a project by itself, since only a CLI with an admin's
 account key can sign certificates and wrap keys. Approving a device or a
 member in the panel creates a pending request that the admin completes with
-`envrune cloud approve`, which shows the fingerprint to compare.
+`envrune cloud device approve` or `envrune cloud member add`, which show the
+fingerprint to compare.
 
 This keeps the zero-knowledge property independent of the JavaScript the
 server sends. Showing or editing values in the browser can come later, as

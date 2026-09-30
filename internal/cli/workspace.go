@@ -71,6 +71,9 @@ func init() {
 		"env":      Workspace.env,
 		"unlock":   Workspace.unlock,
 		"ui":       Workspace.ui,
+		"login":    Workspace.login,
+		"logout":   Workspace.logout,
+		"cloud":    Workspace.cloud,
 	}
 }
 

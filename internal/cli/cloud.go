@@ -1,0 +1,696 @@
+package cli
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"strconv"
+	"strings"
+	"text/tabwriter"
+	"time"
+
+	"github.com/YagoLagrottiBracco/envrune/internal/clipboard"
+	"github.com/YagoLagrottiBracco/envrune/internal/cloud"
+	"github.com/YagoLagrottiBracco/envrune/internal/cloudcrypto"
+	"github.com/YagoLagrottiBracco/envrune/internal/vault"
+)
+
+const cloudUsage = `cloud <command>
+  whoami                                   Show the account, this device, and their fingerprints
+  init [--name device]                     Create your account, or register this device
+  recover [--name device]                  Set up this device with your recovery key
+  device list | approve <id> | revoke <id>
+  org list | create <org> [--name n] | show <org>
+  member add <org> <email> --role r --scope s[,s]
+  member set <org> <user-id> --role r --scope s[,s]
+  member remove <org> <user-id>
+  project create <org> <project> [--name n]
+  env create <org/project/env>
+  set <org/project/env/name>               Store a value (asked twice, never echoed)
+  copy <org/project/env/name> [--clear-after 30s]
+  pull <org/project/env> [--allow-older]   Refresh this device's copy of an environment
+  sync                                     Pull every environment you can use
+  share <org>                              Wrap your keys for new members, devices, and tokens
+  rotate <org/project/env>                 Start a new key epoch
+  token create <org> --scope s[,s] [--name n] [--expires 90d]
+  token revoke <id>`
+
+// cloudTimeout bounds one command's requests; login waits for the browser
+// separately.
+const cloudTimeout = 2 * time.Minute
+
+func (w Workspace) cloudService() *cloud.Service { return &cloud.Service{Store: w.Session} }
+
+// cloudFail shows what went wrong. Errors from internal/cloud name
+// organizations, environments, and secrets, never a value.
+func (w Workspace) cloudFail(err error) int {
+	message := describe(err, "")
+	if message == "" {
+		message = sentence(strings.TrimRight(err.Error(), "."))
+	}
+	w.status().Error(message)
+	return 1
+}
+
+func cloudContext() (context.Context, context.CancelFunc) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := context.WithTimeout(ctx, cloudTimeout)
+	return ctx, func() { cancel(); stop() }
+}
+
+func (w Workspace) confirmChoice(question string) bool {
+	if w.ReadChoice == nil {
+		return false
+	}
+	answer, err := w.ReadChoice(question + " [y/N]")
+	return err == nil && (strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"))
+}
+
+func (w Workspace) login(argv []string) int {
+	a, err := parseArgs(argv, []string{"server"}, nil, false)
+	if err != nil || len(a.positional) != 0 {
+		return w.usageError("login [--server <url>]")
+	}
+	server := a.options["server"]
+	if server == "" {
+		server = os.Getenv("ENVRUNE_CLOUD_SERVER")
+	}
+	if server == "" {
+		server = cloud.DefaultServer
+	}
+	if server == "" {
+		w.status().Error("Pass the EnvRune Cloud address with --server or ENVRUNE_CLOUD_SERVER.")
+		return 2
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	st, err := w.cloudService().Login(ctx, server, func(address string) {
+		w.status().Info("Opening your browser to sign in. If it does not open, visit:")
+		fmt.Fprintf(w.Stderr, "\n    %s\n\n", address)
+		openBrowser(address)
+	})
+	if err != nil {
+		return w.cloudFail(err)
+	}
+	w.status().Success(fmt.Sprintf("Signed in to %s as %s.", st.Server, st.Email))
+	if st.DeviceID == "" {
+		w.status().Info("Next, run `envrune cloud init` to set up your keys on this device.")
+	}
+	return 0
+}
+
+func (w Workspace) logout(argv []string) int {
+	if len(argv) != 0 {
+		return w.usageError("logout")
+	}
+	if err := w.cloudService().Logout(); err != nil {
+		return w.cloudFail(err)
+	}
+	w.status().Success("Signed out. This device's keys stay in the vault, so signing in again needs no approval.")
+	return 0
+}
+
+func (w Workspace) cloud(argv []string) int {
+	if len(argv) == 0 {
+		return w.usageError(cloudUsage)
+	}
+	sub, rest := argv[0], argv[1:]
+	switch sub {
+	case "whoami":
+		return w.cloudWhoami(rest)
+	case "init":
+		return w.cloudInit(rest)
+	case "recover":
+		return w.cloudRecover(rest)
+	case "device":
+		return w.cloudDevice(rest)
+	case "org":
+		return w.cloudOrg(rest)
+	case "member":
+		return w.cloudMember(rest)
+	case "project":
+		return w.cloudProject(rest)
+	case "env":
+		return w.cloudEnv(rest)
+	case "set":
+		return w.cloudSet(rest)
+	case "copy":
+		return w.cloudCopy(rest)
+	case "pull":
+		return w.cloudPull(rest)
+	case "sync":
+		return w.cloudSync(rest)
+	case "share":
+		return w.cloudShare(rest)
+	case "rotate":
+		return w.cloudRotate(rest)
+	case "token":
+		return w.cloudToken(rest)
+	}
+	return w.usageError(cloudUsage)
+}
+
+func (w Workspace) cloudWhoami(argv []string) int {
+	if len(argv) != 0 {
+		return w.usageError("cloud whoami")
+	}
+	st, err := w.cloudService().Status()
+	if err != nil {
+		return w.cloudFail(err)
+	}
+	if st.UserID == "" {
+		w.status().Warn("Not signed in. Run `envrune login`.")
+		return 1
+	}
+	out := tabwriter.NewWriter(w.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintf(out, "server\t%s\n", st.Server)
+	fmt.Fprintf(out, "account\t%s (%s)\n", st.Email, st.UserID)
+	if st.AccountFingerprint != "" {
+		fmt.Fprintf(out, "account fingerprint\t%s\n", st.AccountFingerprint)
+	}
+	if st.DeviceID != "" {
+		state := "approved"
+		if !st.DeviceApproved {
+			state = "waiting for approval"
+		}
+		fmt.Fprintf(out, "device\t%s (%s)\n", st.DeviceID, state)
+		fmt.Fprintf(out, "device fingerprint\t%s\n", st.DeviceFingerprint)
+	}
+	out.Flush()
+	if !st.SignedIn {
+		w.status().Warn("Signed out. Run `envrune login` to sync.")
+	}
+	return 0
+}
+
+func deviceName(a args) string {
+	if name := a.options["name"]; name != "" {
+		return name
+	}
+	host, _ := os.Hostname()
+	return host
+}
+
+func (w Workspace) cloudInit(argv []string) int {
+	a, err := parseArgs(argv, []string{"name"}, nil, false)
+	if err != nil || len(a.positional) != 0 {
+		return w.usageError("cloud init [--name <device>]")
+	}
+	ctx, cancel := cloudContext()
+	defer cancel()
+	result, err := w.cloudService().Setup(ctx, deviceName(a))
+	if err != nil {
+		return w.cloudFail(err)
+	}
+	switch {
+	case result.Created:
+		defer wipe(result.RecoveryKey)
+		w.status().Success("Created your EnvRune Cloud account on this device.")
+		w.status().Warn("Write down this recovery key and keep it offline. It is shown only once.")
+		fmt.Fprintf(w.Stdout, "\n    %s\n\n", vault.FormatRecoveryKey(result.RecoveryKey))
+		w.status().Info("If you lose every device, `envrune cloud recover` with this key restores your access.")
+		w.status().Info("Account fingerprint: " + result.AccountFingerprint + ". An admin compares it before adding you.")
+	case result.Pending:
+		w.status().Warn("This device is waiting for approval. On a device you already use, run:")
+		fmt.Fprintf(w.Stderr, "\n    envrune cloud device approve %s\n\n", w.deviceID())
+		w.status().Info("Check that it shows this fingerprint: " + result.DeviceFingerprint)
+		w.status().Info("Then run `envrune cloud init` here again. Lost your other devices? Run `envrune cloud recover`.")
+	case result.Approved:
+		w.status().Success("This device was approved. Run `envrune cloud sync` to fetch your environments.")
+	default:
+		w.status().Success("This device is already set up. Account fingerprint: " + result.AccountFingerprint)
+	}
+	return 0
+}
+
+func (w Workspace) deviceID() string {
+	st, err := w.cloudService().Status()
+	if err != nil {
+		return "<id>"
+	}
+	return st.DeviceID
+}
+
+func (w Workspace) cloudRecover(argv []string) int {
+	a, err := parseArgs(argv, []string{"name"}, nil, false)
+	if err != nil || len(a.positional) != 0 {
+		return w.usageError("cloud recover [--name <device>]")
+	}
+	text, err := w.ReadSecret("Recovery key")
+	if err != nil {
+		return w.fail(err, "Secure interactive input is required.")
+	}
+	raw, err := vault.ParseRecoveryKey(string(text))
+	wipe(text)
+	if err != nil {
+		return w.fail(err, "The recovery key is invalid.")
+	}
+	key := cloudcrypto.RecoveryKey(raw)
+	wipe(raw)
+	defer wipe(key[:])
+	ctx, cancel := cloudContext()
+	defer cancel()
+	restored, err := w.cloudService().Recover(ctx, key, deviceName(a))
+	if err != nil {
+		return w.cloudFail(err)
+	}
+	w.status().Success(fmt.Sprintf("This device is set up again, with %d %s restored.", restored, plural(restored, "environment key", "environment keys")))
+	w.status().Info("Revoke devices you lost with `envrune cloud device revoke <id>`.")
+	return 0
+}
+
+func (w Workspace) cloudDevice(argv []string) int {
+	const usage = "cloud device list | approve <id> | revoke <id>"
+	ctx, cancel := cloudContext()
+	defer cancel()
+	s := w.cloudService()
+	switch {
+	case len(argv) == 1 && argv[0] == "list":
+		devices, err := s.Devices(ctx)
+		if err != nil {
+			return w.cloudFail(err)
+		}
+		out := tabwriter.NewWriter(w.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(out, "ID\tNAME\tSTATE\tFINGERPRINT")
+		for _, d := range devices {
+			state := "approved"
+			switch {
+			case d.Revoked:
+				state = "revoked"
+			case d.Pending:
+				state = "pending"
+			}
+			if d.This {
+				state += " (this device)"
+			}
+			fmt.Fprintf(out, "%s\t%s\t%s\t%s\n", d.ID, d.Name, state, d.Fingerprint)
+		}
+		out.Flush()
+		return 0
+	case len(argv) == 2 && argv[0] == "approve":
+		device, err := s.PendingDevice(ctx, argv[1])
+		if err != nil {
+			return w.cloudFail(err)
+		}
+		w.status().Info(fmt.Sprintf("Device %s (%s) shows this fingerprint:", device.ID, device.Name))
+		fmt.Fprintf(w.Stderr, "\n    %s\n\n", device.Fingerprint)
+		if !w.confirmChoice("Does the new device show exactly the same fingerprint?") {
+			w.status().Error("Not approved. If the fingerprints differ, someone else may have registered that device.")
+			return 1
+		}
+		shared, err := s.ApproveDevice(ctx, device.ID, device.Fingerprint)
+		if err != nil {
+			return w.cloudFail(err)
+		}
+		w.status().Success(fmt.Sprintf("Approved %s and shared %d %s with it. Run `envrune cloud init` on it to finish.",
+			device.ID, shared, plural(shared, "environment key", "environment keys")))
+		return 0
+	case len(argv) == 2 && argv[0] == "revoke":
+		if err := s.RevokeDevice(ctx, argv[1]); err != nil {
+			return w.cloudFail(err)
+		}
+		w.status().Success("Revoked " + argv[1] + ".")
+		w.status().Warn("It held environment keys: rotate those environments with `envrune cloud rotate`.")
+		return 0
+	}
+	return w.usageError(usage)
+}
+
+func (w Workspace) cloudOrg(argv []string) int {
+	const usage = "cloud org list | create <org> [--name <name>] | show <org>"
+	a, err := parseArgs(argv, []string{"name"}, nil, false)
+	if err != nil || len(a.positional) == 0 {
+		return w.usageError(usage)
+	}
+	ctx, cancel := cloudContext()
+	defer cancel()
+	s := w.cloudService()
+	switch {
+	case len(a.positional) == 1 && a.positional[0] == "list":
+		orgs, err := s.Orgs(ctx)
+		if err != nil {
+			return w.cloudFail(err)
+		}
+		out := tabwriter.NewWriter(w.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(out, "ORG\tNAME\tROLE")
+		for _, o := range orgs {
+			fmt.Fprintf(out, "%s\t%s\t%s\n", o.Slug, o.Name, o.Role)
+		}
+		out.Flush()
+		return 0
+	case len(a.positional) == 2 && a.positional[0] == "create":
+		name := a.options["name"]
+		if name == "" {
+			name = a.positional[1]
+		}
+		org, err := s.CreateOrg(ctx, a.positional[1], name)
+		if err != nil {
+			return w.cloudFail(err)
+		}
+		w.status().Success(fmt.Sprintf("Created %s. Your account key is its root.", org.Slug))
+		w.status().Info("Members compare this root fingerprint when they join: " + org.Roots[0].Fingerprint)
+		return 0
+	case len(a.positional) == 2 && a.positional[0] == "show":
+		org, err := s.ShowOrg(ctx, a.positional[1])
+		if err != nil {
+			return w.cloudFail(err)
+		}
+		w.printOrg(org)
+		return 0
+	}
+	return w.usageError(usage)
+}
+
+func (w Workspace) printOrg(org *cloud.Org) {
+	if org.FirstSeen {
+		w.status().Warn("This device pinned the organization's root now. Compare its fingerprint with a member out of band.")
+	}
+	out := tabwriter.NewWriter(w.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintf(out, "%s\t%s\n", org.Slug, org.Name)
+	for _, r := range org.Roots {
+		fmt.Fprintf(out, "root\t%s\t%s\n", r.UserID, r.Fingerprint)
+	}
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "MEMBER\tROLE\tSCOPE\tFINGERPRINT")
+	for _, m := range org.Members {
+		fingerprint := m.Fingerprint
+		if !m.Verified {
+			fingerprint = "UNVERIFIED: no certificate chain to the root"
+		}
+		fmt.Fprintf(out, "%s\t%s\t%s\t%s\n", m.UserID, m.Role, strings.Join(m.Scope, ","), fingerprint)
+	}
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "ENVIRONMENT\tEPOCH\tSECRETS")
+	for _, p := range org.Projects {
+		for _, e := range p.Environments {
+			note := ""
+			if e.NeedsRotation {
+				note = " (needs rotation)"
+			}
+			fmt.Fprintf(out, "%s/%s\t%d%s\t%d\n", p.Slug, e.Slug, e.Epoch, note, len(e.Secrets))
+		}
+	}
+	out.Flush()
+}
+
+func splitScope(raw string) []string {
+	var scope []string
+	for _, s := range strings.Split(raw, ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			scope = append(scope, s)
+		}
+	}
+	return scope
+}
+
+func (w Workspace) cloudMember(argv []string) int {
+	const usage = "cloud member add <org> <email> --role <role> --scope <s[,s]> | set <org> <user-id> --role <role> --scope <s[,s]> | remove <org> <user-id>"
+	a, err := parseArgs(argv, []string{"role", "scope"}, nil, false)
+	if err != nil || len(a.positional) != 3 {
+		return w.usageError(usage)
+	}
+	action, org, who := a.positional[0], a.positional[1], a.positional[2]
+	role, scope := a.options["role"], splitScope(a.options["scope"])
+	if role == cloudcrypto.RoleOwner && len(scope) == 0 {
+		scope = []string{"*"}
+	}
+	ctx, cancel := cloudContext()
+	defer cancel()
+	s := w.cloudService()
+	switch action {
+	case "add", "set":
+		if role == "" || len(scope) == 0 {
+			return w.usageError(usage)
+		}
+		var shared int
+		if action == "add" {
+			account, err := s.LookupAccount(ctx, who)
+			if err != nil {
+				return w.cloudFail(err)
+			}
+			w.status().Info(fmt.Sprintf("The server says %s has this account fingerprint:", who))
+			fmt.Fprintf(w.Stderr, "\n    %s\n\n", account.Fingerprint)
+			if !w.confirmChoice(fmt.Sprintf("Did %s confirm the same fingerprint (`envrune cloud whoami`) over another channel?", who)) {
+				w.status().Error("Not added. Compare the fingerprint first: a different one means the key is not theirs.")
+				return 1
+			}
+			shared, err = s.AddMember(ctx, org, account, role, scope)
+			if err != nil {
+				return w.cloudFail(err)
+			}
+		} else if shared, err = s.ChangeMember(ctx, org, who, role, scope); err != nil {
+			return w.cloudFail(err)
+		}
+		w.status().Success(fmt.Sprintf("%s is %s of %s (%s). Shared %d %s.", who, role, org, strings.Join(scope, ", "),
+			shared, plural(shared, "environment", "environments")))
+		return 0
+	case "remove":
+		rotated, err := s.RemoveMember(ctx, org, who)
+		if err != nil {
+			return w.cloudFail(err)
+		}
+		w.status().Success(fmt.Sprintf("Removed %s. Rotated %d %s: %s.", who, len(rotated), plural(len(rotated), "environment", "environments"), strings.Join(rotated, ", ")))
+		w.status().Warn("They may still know the values they could read. Replace them; the panel lists each one under rotation.")
+		return 0
+	}
+	return w.usageError(usage)
+}
+
+func (w Workspace) cloudProject(argv []string) int {
+	a, err := parseArgs(argv, []string{"name"}, nil, false)
+	if err != nil || len(a.positional) != 3 || a.positional[0] != "create" {
+		return w.usageError("cloud project create <org> <project> [--name <name>]")
+	}
+	name := a.options["name"]
+	if name == "" {
+		name = a.positional[2]
+	}
+	ctx, cancel := cloudContext()
+	defer cancel()
+	if err := w.cloudService().CreateProject(ctx, a.positional[1], a.positional[2], name); err != nil {
+		return w.cloudFail(err)
+	}
+	w.status().Success(fmt.Sprintf("Created %s/%s. Add environments with `envrune cloud env create %s/%s/<env>`.",
+		a.positional[1], a.positional[2], a.positional[1], a.positional[2]))
+	return 0
+}
+
+func (w Workspace) cloudEnv(argv []string) int {
+	if len(argv) != 2 || argv[0] != "create" {
+		return w.usageError("cloud env create <org/project/env>")
+	}
+	path, err := cloud.ParsePath(argv[1], false)
+	if err != nil {
+		return w.cloudFail(err)
+	}
+	ctx, cancel := cloudContext()
+	defer cancel()
+	if err := w.cloudService().CreateEnvironment(ctx, path.Org, path.Project, path.Env); err != nil {
+		return w.cloudFail(err)
+	}
+	w.status().Success(fmt.Sprintf("Created %s with its first key, shared with everyone who may use it.", path))
+	return 0
+}
+
+func (w Workspace) cloudSet(argv []string) int {
+	if len(argv) != 1 {
+		return w.usageError("cloud set <org/project/env/name>")
+	}
+	path, err := cloud.ParsePath(argv[0], true)
+	if err != nil {
+		return w.cloudFail(err)
+	}
+	value, err := readConfirmedValue(w.ReadSecret, "Secret value")
+	if err != nil {
+		return w.fail(err, "Secure interactive input is required.")
+	}
+	defer wipe(value)
+	ctx, cancel := cloudContext()
+	defer cancel()
+	version, err := w.cloudService().Set(ctx, path, value)
+	if err != nil {
+		return w.cloudFail(err)
+	}
+	w.status().Success(fmt.Sprintf("Stored %s, version %d.", path, version))
+	return 0
+}
+
+func (w Workspace) cloudCopy(argv []string) int {
+	const usage = "cloud copy <org/project/env/name> [--clear-after 30s]"
+	a, err := parseArgs(argv, []string{"clear-after"}, nil, false)
+	if err != nil || len(a.positional) != 1 {
+		return w.usageError(usage)
+	}
+	delay := 30 * time.Second
+	if raw, ok := a.options["clear-after"]; ok {
+		if delay, err = time.ParseDuration(raw); err != nil || delay <= 0 {
+			return w.usageError(usage)
+		}
+	}
+	path, err := cloud.ParsePath(a.positional[0], true)
+	if err != nil {
+		return w.cloudFail(err)
+	}
+	env := path
+	env.Name = ""
+	values, role, err := w.cloudService().Values(env)
+	if err != nil {
+		return w.cloudFail(err)
+	}
+	defer func() {
+		for _, v := range values {
+			wipe(v)
+		}
+	}()
+	// Consumers hold the key so their programs can run; the CLI keeps values
+	// off their screen and clipboard (docs/cloud-crypto.md, Roles).
+	if role == cloudcrypto.RoleConsumer {
+		w.status().Error("Your role (consumer) lets programs use values, not copy them.")
+		return 1
+	}
+	value, ok := values[path.Name]
+	if !ok {
+		w.status().Error(fmt.Sprintf("%s has no secret %s. Run `envrune cloud pull %s` if it is new.", env, path.Name, env))
+		return 1
+	}
+	if err := clipboard.Copy(value, delay); err != nil {
+		return w.fail(err, "The clipboard is unavailable.")
+	}
+	w.status().Success(fmt.Sprintf("Copied %s to the clipboard. It will be cleared in %s.", path, delay))
+	return 0
+}
+
+func (w Workspace) cloudPull(argv []string) int {
+	a, err := parseArgs(argv, nil, []string{"allow-older"}, false)
+	if err != nil || len(a.positional) != 1 {
+		return w.usageError("cloud pull <org/project/env> [--allow-older]")
+	}
+	path, err := cloud.ParsePath(a.positional[0], false)
+	if err != nil {
+		return w.cloudFail(err)
+	}
+	ctx, cancel := cloudContext()
+	defer cancel()
+	secrets, err := w.cloudService().Pull(ctx, path, a.flags["allow-older"])
+	if err != nil {
+		return w.cloudFail(err)
+	}
+	out := tabwriter.NewWriter(w.Stdout, 0, 0, 2, ' ', 0)
+	for _, s := range secrets {
+		fmt.Fprintf(out, "%s\tv%d\n", s.Name, s.Version)
+	}
+	out.Flush()
+	w.status().Success(fmt.Sprintf("Pulled %s: %d %s, verified.", path, len(secrets), plural(len(secrets), "secret", "secrets")))
+	return 0
+}
+
+func (w Workspace) cloudSync(argv []string) int {
+	if len(argv) != 0 {
+		return w.usageError("cloud sync")
+	}
+	ctx, cancel := cloudContext()
+	defer cancel()
+	synced, err := w.cloudService().Sync(ctx)
+	for _, p := range synced {
+		fmt.Fprintln(w.Stdout, p)
+	}
+	if err != nil {
+		return w.cloudFail(err)
+	}
+	w.status().Success(fmt.Sprintf("Synced %d %s.", len(synced), plural(len(synced), "environment", "environments")))
+	return 0
+}
+
+func (w Workspace) cloudShare(argv []string) int {
+	if len(argv) != 1 {
+		return w.usageError("cloud share <org>")
+	}
+	ctx, cancel := cloudContext()
+	defer cancel()
+	shared, err := w.cloudService().Share(ctx, argv[0])
+	if err != nil {
+		return w.cloudFail(err)
+	}
+	w.status().Success(fmt.Sprintf("Shared the keys of %d %s with every verified member, device, and token that may use them.",
+		shared, plural(shared, "environment", "environments")))
+	return 0
+}
+
+func (w Workspace) cloudRotate(argv []string) int {
+	if len(argv) != 1 {
+		return w.usageError("cloud rotate <org/project/env>")
+	}
+	path, err := cloud.ParsePath(argv[0], false)
+	if err != nil {
+		return w.cloudFail(err)
+	}
+	ctx, cancel := cloudContext()
+	defer cancel()
+	epoch, err := w.cloudService().Rotate(ctx, path.Org, path.Project, path.Env)
+	if err != nil {
+		return w.cloudFail(err)
+	}
+	w.status().Success(fmt.Sprintf("%s is at epoch %d. Its values were encrypted again under the new key.", path, epoch))
+	return 0
+}
+
+func (w Workspace) cloudToken(argv []string) int {
+	const usage = "cloud token create <org> --scope <s[,s]> [--name <name>] [--expires 90d] | revoke <id>"
+	a, err := parseArgs(argv, []string{"scope", "name", "expires"}, nil, false)
+	if err != nil || len(a.positional) != 2 {
+		return w.usageError(usage)
+	}
+	ctx, cancel := cloudContext()
+	defer cancel()
+	s := w.cloudService()
+	switch a.positional[0] {
+	case "create":
+		scope := splitScope(a.options["scope"])
+		ttl, err := parseDays(a.options["expires"], 90*24*time.Hour)
+		if len(scope) == 0 || err != nil {
+			return w.usageError(usage)
+		}
+		name := a.options["name"]
+		if name == "" {
+			name = "ci"
+		}
+		token, err := s.CreateToken(ctx, a.positional[1], name, scope, ttl)
+		if err != nil {
+			return w.cloudFail(err)
+		}
+		w.status().Warn("Store this token as a CI secret, such as ENVRUNE_TOKEN. It is shown only once.")
+		fmt.Fprintf(w.Stdout, "\n%s\n\n", token)
+		w.status().Info("It decrypts " + strings.Join(scope, ", ") + " until " + time.Now().Add(ttl).Format("2006-01-02") + ".")
+		return 0
+	case "revoke":
+		if err := s.RevokeToken(ctx, a.positional[1]); err != nil {
+			return w.cloudFail(err)
+		}
+		w.status().Success("Revoked " + a.positional[1] + ".")
+		w.status().Warn("It held environment keys: rotate those environments with `envrune cloud rotate`.")
+		return 0
+	}
+	return w.usageError(usage)
+}
+
+// parseDays accepts Go durations and whole days, such as 90d.
+func parseDays(raw string, fallback time.Duration) (time.Duration, error) {
+	if raw == "" {
+		return fallback, nil
+	}
+	if days, ok := strings.CutSuffix(raw, "d"); ok {
+		n, err := strconv.Atoi(days)
+		if err != nil || n <= 0 {
+			return 0, errUsage
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return 0, errUsage
+	}
+	return d, nil
+}
