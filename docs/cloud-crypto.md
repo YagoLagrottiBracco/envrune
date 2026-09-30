@@ -1,6 +1,8 @@
 # EnvRune Cloud: cryptographic design
 
-Status: **draft for review**. Nothing here is implemented yet. This document
+Status: **approved for the MVP**, with the proposals under
+[Open questions](#open-questions-for-review) adopted; they can be revisited.
+Implementation: `internal/cloudcrypto` (primitives). This document
 describes how EnvRune Cloud shares secrets between the members of a team so
 that the server never sees a value or a key that decrypts one.
 
@@ -76,8 +78,8 @@ building blocks.
 
 ```text
 recovery key (32 random bytes, shown once)
- ├─ HKDF "envrune recovery backup" ─▶ key that encrypts the account key backup
- └─ HKDF "envrune recovery age"    ─▶ recovery age identity (X25519)
+ └─ HKDF "envrune-recovery-backup-v1" ─▶ key that encrypts the recovery backup:
+      the account private key and the recovery age identity (random X25519)
 
 account key (Ed25519), one per user
  └─ signs ─▶ device certificates: this device's keys belong to this user
@@ -99,8 +101,11 @@ At sign-up the CLI generates the account key and the recovery key, shows the
 recovery key once (like the local vault's), and uploads:
 
 - the account public key;
-- the account private key encrypted with the recovery backup key
-  (XChaCha20-Poly1305, associated data = user id);
+- the recovery backup: the account private key and a random recovery age
+  identity, encrypted with the key derived from the recovery key
+  (XChaCha20-Poly1305, associated data = user id). age has no way to build an
+  identity from derived bytes, so the identity is random and travels in the
+  backup;
 - the recovery age recipient, signed by the account key like a device, which
   is then included whenever an environment key is wrapped for this user.
   Clients check that signature, so the server cannot substitute a recipient
@@ -316,7 +321,7 @@ an explicit opt-in with that trade-off explained.
 | --- | --- |
 | Read all metadata and the audit log | Read a value, an environment key, or a private key |
 | Refuse service, or serve stale data to clients that have not seen newer versions | Serve a value older than one a client has seen without the client noticing |
-| Hide a member or a device from listings | Make a client encrypt to a key that no admin signed |
+| Hide a member or a device from listings, or hide a removal certificate from a client that has never seen it | Make a client encrypt to a key that no admin signed, or undo a removal a client has already seen (clients keep every certificate they have verified) |
 | Record IP addresses and access times | Move a ciphertext to another secret, environment, or version |
 | Keep ciphertext after a member is removed | Let a removed member read values written after the removal |
 
