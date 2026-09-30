@@ -14,6 +14,31 @@ go test ./...
 The tests cover vault behavior, configuration parsing, runtime handling, and
 the local UI. A passing test suite is the baseline before producing a binary.
 
+The CLI integration tests build `envrune` and run it the way a user does: a
+real vault, child processes found on `PATH`, several `envrune` processes at
+once, and `envrune up` stopping every process it started. They take about
+20 seconds:
+
+```sh
+go test -tags integration ./test/integration
+```
+
+To run them where Go is not installed, such as a VM, cross-compile the test
+binary together with `envrune` and the probe it starts, then point
+`ENVRUNE_IT_BIN` at the folder that holds all three:
+
+```sh
+GOOS=linux go build -o it/envrune ./cmd/envrune
+GOOS=linux go build -o it/probe ./test/integration/testdata/probe
+GOOS=linux go test -c -tags integration -o it/it.test ./test/integration
+# on the target machine
+ENVRUNE_IT_BIN=$PWD/it ./it/it.test -test.v
+```
+
+The `ci` GitHub Actions workflow runs `go vet`, the unit tests, and the
+integration tests on Linux, macOS, and Windows for every push and pull
+request, and checks that other targets still compile.
+
 ## Build a local binary
 
 ```sh
