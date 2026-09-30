@@ -57,7 +57,7 @@ fi
 
 tar -xzf "$tmp/$archive" -C "$tmp" envrune
 
-if [ -d "$INSTALL_DIR" ] && [ -w "$INSTALL_DIR" ]; then
+if mkdir -p "$INSTALL_DIR" 2>/dev/null && [ -w "$INSTALL_DIR" ]; then
   install -m 0755 "$tmp/envrune" "$INSTALL_DIR/envrune"
 elif command -v sudo >/dev/null 2>&1; then
   printf 'Installing to %s (requires sudo)...\n' "$INSTALL_DIR"
