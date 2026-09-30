@@ -68,7 +68,7 @@ func (u unlocker) session() (*app.Session, error) {
 		}
 		return nil, vault.ErrNotFound
 	}
-	if key, err := agent.Key(agent.SocketPath(path)); err == nil {
+	if key, err := agent.Key(agent.Address(path)); err == nil {
 		defer wipe(key)
 		if v, err := vault.OpenWithKey(path, key); err == nil {
 			return app.NewSession(v), nil

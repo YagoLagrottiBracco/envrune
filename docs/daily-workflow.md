@@ -23,9 +23,9 @@ envrune lock                # forget the key before the 8 hours are up
 ```
 
 Like `ssh-agent`, the agent is a small background process that holds the
-vault's data key in memory and answers on a Unix socket next to the vault, in
-your private data directory. On Linux and macOS it answers only to processes
-of your own user. It exits when the time limit ends or when you run
+vault's data key in memory and answers on a Unix socket next to the vault (a
+named pipe on Windows), and only to processes of your own user. It exits
+when the time limit ends or when you run
 `envrune lock`. Inside `envrune shell`, `unlock` starts the agent from the
 open session without asking again.
 

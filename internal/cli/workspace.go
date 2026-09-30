@@ -681,7 +681,7 @@ func startAgent(session *app.Session, ttl time.Duration, status Presenter) int {
 		status.Error(describe(app.ErrNoVault, ""))
 		return 1
 	}
-	socket := agent.SocketPath(path)
+	socket := agent.Address(path)
 	_ = agent.Stop(socket) // replace an earlier agent and its time limit
 	key, err := session.Key()
 	if err != nil {

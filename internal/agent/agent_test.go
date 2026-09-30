@@ -11,7 +11,8 @@ import (
 
 func shortTempDir(t *testing.T) string {
 	t.Helper()
-	// Unix socket paths are limited to about 100 bytes.
+	// Unix socket paths are limited to about 100 bytes; on Windows the
+	// directory only makes the pipe name unique.
 	dir, err := os.MkdirTemp("", "ea")
 	if err != nil {
 		t.Fatal(err)
@@ -21,7 +22,7 @@ func shortTempDir(t *testing.T) string {
 }
 
 func TestAgentServesKeyUntilStopped(t *testing.T) {
-	socket := filepath.Join(shortTempDir(t), "a.sock")
+	socket := Address(filepath.Join(shortTempDir(t), "vault.envrune"))
 	key := bytes.Repeat([]byte{7}, 32)
 	done := make(chan error, 1)
 	go func() { done <- Serve(socket, append([]byte(nil), key...), time.Minute) }()
@@ -48,7 +49,7 @@ func TestAgentServesKeyUntilStopped(t *testing.T) {
 }
 
 func TestAgentForgetsKeyAfterTTL(t *testing.T) {
-	socket := filepath.Join(shortTempDir(t), "a.sock")
+	socket := Address(filepath.Join(shortTempDir(t), "vault.envrune"))
 	if err := Serve(socket, bytes.Repeat([]byte{1}, 32), 100*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}

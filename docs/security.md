@@ -36,18 +36,25 @@ use the vault without a prompt. Both hand out the **data key**, which opens
 the vault, so choose them knowingly.
 
 - **Agent** (`envrune unlock --ttl 8h`): a background process keeps the data
-  key in memory until the time limit or `envrune lock`. It answers on a Unix
-  socket in your private data directory (or in `XDG_RUNTIME_DIR`/the
-  temporary directory when that path is too long). On Linux and macOS it
-  checks that the peer process belongs to your user; on Linux it is also
-  marked non-dumpable. On Windows, access relies on the ACL of your profile
-  directory. Like `ssh-agent`, it protects against other users, not against
-  malicious code already running as you.
+  key in memory until the time limit or `envrune lock`.
+  - On Linux and macOS it answers on a Unix socket with mode `0600` in your
+    private data directory (or in `XDG_RUNTIME_DIR`/the temporary directory
+    when that path is too long), and checks that the peer process belongs to
+    your user. On Linux it is also marked non-dumpable.
+  - On Windows it answers on a named pipe, created with
+    `github.com/Microsoft/go-winio` (the library Docker and containerd use),
+    whose protected DACL grants access to your user's SID only, so other
+    users, administrators without your token, and low-integrity processes
+    cannot open it. The pipe rejects remote clients, and the agent checks the
+    client's user again. The CLI checks that the pipe's server runs as your
+    user before asking for the key, so a pipe created first by someone else
+    cannot pose as the agent.
+  - Like `ssh-agent`, it protects against other users, not against malicious
+    code already running as you.
 - **Keychain** (`envrune keychain enable`): the data key is stored in Windows
   Credential Manager (protected by DPAPI), the macOS Keychain, or the Secret
   Service on Linux. It is available whenever you are logged in, with no time
-  limit. `envrune keychain disable` deletes it. Neither Windows Hello nor
-  Touch ID confirmation is required by EnvRune today.
+  limit and no extra confirmation. `envrune keychain disable` deletes it.
 
 Changing the master password does not invalidate agent or keychain entries,
 because the data key stays the same. After a restore, EnvRune turns keychain

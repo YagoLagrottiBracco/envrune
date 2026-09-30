@@ -28,7 +28,7 @@ func (w Workspace) doctor(argv []string) int {
 		case holder < 0:
 			add(app.LevelWarn, "the vault file is locked right now by another process")
 		}
-		if expires, err := agent.Status(agent.SocketPath(path)); err == nil {
+		if expires, err := agent.Status(agent.Address(path)); err == nil {
 			add(app.LevelOK, "agent: unlocked until %s", expires.Local().Format(time.DateTime))
 		}
 		if keychainEnabled(path) {

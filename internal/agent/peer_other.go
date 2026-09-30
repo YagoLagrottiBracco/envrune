@@ -1,11 +1,11 @@
-//go:build !linux && !darwin
+//go:build !linux && !darwin && !windows
 
 package agent
 
 import "net"
 
-// On Windows the socket lives in the user's profile, whose ACL already
-// limits it to that user and administrators.
+// Other Unix systems give no portable way to read the peer's user; the
+// socket's 0600 mode and private directory keep other users out.
 func peerAllowed(net.Conn) bool { return true }
 
 func hardenProcess() {}

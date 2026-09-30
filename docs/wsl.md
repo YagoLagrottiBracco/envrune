@@ -31,9 +31,10 @@ Both sides then read and write the same file. Keep these limits in mind:
 - **Some file systems cannot lock at all.** When `flock` is not supported,
   EnvRune continues without the lock rather than failing.
 - **The agent is per side.** `envrune unlock` in Windows does not unlock WSL,
-  and the other way around: the agent socket lives next to the vault, but a
-  Windows process cannot answer a Linux one. Run `envrune unlock` on each
-  side, or use the keychain on Windows and the agent in WSL.
+  and the other way around: the Windows agent listens on a named pipe and the
+  Linux one on a Unix socket, and neither can reach the other. Run
+  `envrune unlock` on each side, or use the keychain on Windows and the agent
+  in WSL.
 - **`/mnt/c` is slower.** Each command reads the vault through the Windows
   file-system bridge.
 

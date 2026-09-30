@@ -240,7 +240,7 @@ func executeLock(status Presenter) int {
 		status.Error("Vault path is unavailable.")
 		return 1
 	}
-	if err := agent.Stop(agent.SocketPath(path)); err != nil {
+	if err := agent.Stop(agent.Address(path)); err != nil {
 		status.Info("No unlock agent was running.")
 	} else {
 		status.Success("The agent forgot the vault key. New terminals will ask for the master password.")
@@ -261,7 +261,7 @@ func executeStatus(stdout io.Writer, status Presenter) int {
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		fmt.Fprintln(stdout, "           not created yet; run `envrune init`")
 	}
-	if expires, err := agent.Status(agent.SocketPath(path)); err == nil {
+	if expires, err := agent.Status(agent.Address(path)); err == nil {
 		fmt.Fprintf(stdout, "Agent:     unlocked until %s\n", expires.Local().Format(time.DateTime))
 	} else {
 		fmt.Fprintln(stdout, "Agent:     locked")
@@ -450,7 +450,7 @@ func executeRestore(args []string, read func(string) ([]byte, error), status Pre
 		status.Error(describe(err, "The backup could not be restored."))
 		return 1
 	}
-	_ = agent.Stop(agent.SocketPath(path))
+	_ = agent.Stop(agent.Address(path))
 	if keychainEnabled(path) {
 		_ = keychain.Delete(keychain.Account(path))
 		_ = os.Remove(keychainMarker(path))

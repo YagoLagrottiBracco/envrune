@@ -1,44 +1,22 @@
 // Package agent keeps the vault's data key in a background process for a
 // limited time, like ssh-agent, so each new terminal does not ask for the
-// master password. It answers only on a Unix socket in the user's private
-// data directory and, where the platform allows, only to the same user.
+// master password. It answers on a Unix socket in the user's private data
+// directory, or on Windows on a named pipe whose ACL admits only the user,
+// and both ends check, where the platform allows, that the other process
+// belongs to the same user.
 package agent
 
 import (
 	"bufio"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net"
-	"os"
-	"path/filepath"
 	"time"
 )
 
 var ErrNotRunning = errors.New("agent is not running")
 
 const dialTimeout = time.Second
-
-// maxSocketPath stays under the ~104-byte limit of Unix socket addresses on
-// every platform.
-const maxSocketPath = 100
-
-// SocketPath returns the agent socket that belongs to the vault at vaultPath:
-// next to the vault, or in the user's runtime or temporary directory when
-// that path would be too long for a socket.
-func SocketPath(vaultPath string) string {
-	path := filepath.Join(filepath.Dir(vaultPath), "agent.sock")
-	if len(path) <= maxSocketPath {
-		return path
-	}
-	dir := os.Getenv("XDG_RUNTIME_DIR")
-	if dir == "" {
-		dir = os.TempDir()
-	}
-	sum := sha256.Sum256([]byte(vaultPath))
-	return filepath.Join(dir, "envrune-"+hex.EncodeToString(sum[:6])+".sock")
-}
 
 type request struct {
 	Op string `json:"op"`
@@ -50,20 +28,18 @@ type response struct {
 	Error   string    `json:"error,omitempty"`
 }
 
-// Serve answers key requests until ttl passes or a stop request arrives. It
-// wipes key before returning.
-func Serve(socketPath string, key []byte, ttl time.Duration) error {
+// Serve answers key requests on address until ttl passes or a stop request
+// arrives. It wipes key before returning.
+func Serve(address string, key []byte, ttl time.Duration) error {
 	defer wipe(key)
-	if _, err := Status(socketPath); err == nil {
+	if _, err := Status(address); err == nil {
 		return errors.New("an agent is already running")
 	}
-	_ = os.Remove(socketPath)
-	listener, err := net.Listen("unix", socketPath)
+	listener, err := listen(address)
 	if err != nil {
 		return err
 	}
-	_ = os.Chmod(socketPath, 0600)
-	defer os.Remove(socketPath)
+	defer listener.Close()
 	expires := time.Now().Add(ttl)
 	timer := time.AfterFunc(ttl, func() { _ = listener.Close() })
 	defer timer.Stop()
@@ -103,8 +79,8 @@ func handle(conn net.Conn, key []byte, expires time.Time) (stop bool) {
 	return false
 }
 
-func call(socketPath, op string) (response, error) {
-	conn, err := net.DialTimeout("unix", socketPath, dialTimeout)
+func call(address, op string) (response, error) {
+	conn, err := dial(address)
 	if err != nil {
 		return response{}, ErrNotRunning
 	}
@@ -124,8 +100,8 @@ func call(socketPath, op string) (response, error) {
 }
 
 // Key asks a running agent for the data key.
-func Key(socketPath string) ([]byte, error) {
-	resp, err := call(socketPath, "key")
+func Key(address string) ([]byte, error) {
+	resp, err := call(address, "key")
 	if err != nil {
 		return nil, err
 	}
@@ -136,14 +112,14 @@ func Key(socketPath string) ([]byte, error) {
 }
 
 // Status reports when a running agent will forget the key.
-func Status(socketPath string) (time.Time, error) {
-	resp, err := call(socketPath, "status")
+func Status(address string) (time.Time, error) {
+	resp, err := call(address, "status")
 	return resp.Expires, err
 }
 
 // Stop asks a running agent to forget the key and exit.
-func Stop(socketPath string) error {
-	_, err := call(socketPath, "stop")
+func Stop(address string) error {
+	_, err := call(address, "stop")
 	return err
 }
 
