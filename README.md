@@ -204,6 +204,7 @@ output is already plain.
 | [Documented variables](docs/variables.md) | Describe each variable, validate values, and onboard with `envrune setup`. |
 | [Keeping values out of Git](docs/guard.md) | Block commits that contain vault values, and find old leaks. |
 | [AI agents](docs/mcp.md) | Let Claude Code, Cursor, or Copilot run commands with secrets they cannot read. |
+| [Replacing dotenv in code](docs/packages.md) | Load variables from the vault in Node or Python, like dotenv. |
 | [Teams and CI](docs/teams-and-ci.md) | Share secrets with a team file and give pipelines access. |
 | [Windows and WSL](docs/wsl.md) | Keep one vault or two across Windows and WSL. |
 | [Local dashboard](docs/local-ui.md) | Understand the loopback UI, its token flow, and its limits. |

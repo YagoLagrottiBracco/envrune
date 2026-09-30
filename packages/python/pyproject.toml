@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "envrune"
+version = "0.2.0"
+description = "Load environment variables from the EnvRune vault instead of a .env file"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.9"
+dependencies = []
+keywords = ["env", "dotenv", "secrets", "vault", "envrune"]
+
+[project.urls]
+Repository = "https://github.com/YagoLagrottiBracco/envrune"
+
+[tool.setuptools.packages.find]
+where = ["src"]

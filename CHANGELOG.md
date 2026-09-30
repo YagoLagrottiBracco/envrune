@@ -20,6 +20,10 @@ All notable changes to EnvRune are listed here. The format follows
 - **`envrune guard`** blocks a commit whose staged changes add a vault or team
   value, naming the file, line, and reference. `guard install` adds it as a
   pre-commit hook; with the vault locked it warns, or blocks with `--strict`.
+- **Packages for Node and Python** in `packages/` (not yet published) replace
+  dotenv: `import "envrune/config"` and `envrune.load()` load variables from
+  the vault through `envrune env --format json --no-prompt`, which is new, and
+  fail clearly when the vault is locked instead of reading a `.env` file.
 - **`envrune mcp`** is an MCP server for AI agents (Claude Code, Cursor, Copilot)
   with tools that list environments, variables, and commands, run the commands
   under `commands:` with output masked against every vault value, and run

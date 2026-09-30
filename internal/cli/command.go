@@ -77,7 +77,8 @@ Unlocking
 Teams and CI
   team init|whoami|keygen|members|add|remove|set|unset|list
   push github [--env e] [--repo owner/name] [--github-env name]
-  env [--env e] [--format sh|fish|powershell]   Print variables for eval
+  env [--env e] [--format sh|fish|powershell|json] [--no-prompt]
+                              Print variables for eval or the Node and Python packages
   hook bash|zsh|fish|powershell                  Print a terminal hook
 
 Environment variables: ENVRUNE_VAULT, ENVRUNE_PASSWORD_FILE, ENVRUNE_PASSWORD,
@@ -158,10 +159,13 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	noPrompt := args[0] == "env" && containsArg(args, "--hook")
+	// A terminal hook and the Node and Python packages must never wait for a
+	// password; the hook also stays silent when the vault is locked.
+	quiet := args[0] == "env" && containsArg(args, "--hook")
+	noPrompt := quiet || args[0] == "env" && containsArg(args, "--no-prompt")
 	session, err := unlocker{getenv: os.Getenv, prompt: prompt.Read, noPrompt: noPrompt, status: status}.session()
 	if err != nil {
-		if !noPrompt {
+		if !quiet {
 			status.Error(describe(err, "Unable to unlock the vault."))
 		}
 		return 1

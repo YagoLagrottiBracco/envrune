@@ -1,0 +1,41 @@
+{
+  "name": "envrune",
+  "version": "0.2.0",
+  "description": "Load environment variables from the EnvRune vault instead of a .env file",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./config": {
+      "types": "./config.d.ts",
+      "default": "./config.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "config.js",
+    "config.d.ts"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YagoLagrottiBracco/envrune.git",
+    "directory": "packages/node"
+  },
+  "keywords": [
+    "env",
+    "dotenv",
+    "secrets",
+    "vault",
+    "envrune"
+  ]
+}

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -14,8 +15,8 @@ import (
 // `eval "$(envrune env)"` and the terminal hook. It refuses to print to a
 // terminal, where the values would be shown on screen.
 func (w Workspace) env(argv []string) int {
-	const usage = "env [--env <environment>] [--format sh|fish|powershell] [--hook]"
-	a, err := parseArgs(argv, []string{"env", "format"}, []string{"hook"}, false)
+	const usage = "env [--env <environment>] [--format sh|fish|powershell|json] [--hook] [--no-prompt]"
+	a, err := parseArgs(argv, []string{"env", "format"}, []string{"hook", "no-prompt"}, false)
 	if err != nil || len(a.positional) != 0 {
 		return w.usageError(usage)
 	}
@@ -23,7 +24,7 @@ func (w Workspace) env(argv []string) int {
 	if format == "" {
 		format = "sh"
 	}
-	if format != "sh" && format != "fish" && format != "powershell" {
+	if format != "sh" && format != "fish" && format != "powershell" && format != "json" {
 		return w.usageError(usage)
 	}
 	if terminalWriter(w.Stdout) {
@@ -34,6 +35,17 @@ func (w Workspace) env(argv []string) int {
 	defer wipePairs(resolved.Pairs)
 	if err != nil {
 		return w.fail(err, "Configured secrets are unavailable.")
+	}
+	if format == "json" {
+		// One object for the envrune packages for Node and Python.
+		values := make(map[string]string, len(resolved.Pairs))
+		for _, pair := range resolved.Pairs {
+			values[pair.Name] = string(pair.Value)
+		}
+		if err := json.NewEncoder(w.Stdout).Encode(values); err != nil {
+			return w.fail(err, "The variables could not be written.")
+		}
+		return 0
 	}
 	writeAssignments(w.Stdout, format, resolved.Pairs, a.flags["hook"])
 	return 0

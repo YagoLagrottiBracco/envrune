@@ -51,3 +51,29 @@ jobs:
           for target in linux/arm64 darwin/amd64 windows/arm64 freebsd/amd64; do
             GOOS="${target%/*}" GOARCH="${target#*/}" go build -o /dev/null ./cmd/envrune
           done
+
+  # The envrune packages for Node and Python.
+  packages:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Node package
+        working-directory: packages/node
+        run: npm test
+
+      - name: Python package
+        working-directory: packages/python
+        run: python -m unittest discover -s tests -v
