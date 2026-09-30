@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"time"
 
-	crypto "github.com/envrune/envrune/internal/crypto"
-	"github.com/envrune/envrune/internal/domain"
+	crypto "github.com/YagoLagrottiBracco/envrune/internal/crypto"
+	"github.com/YagoLagrottiBracco/envrune/internal/domain"
 )
 
 type payload struct {

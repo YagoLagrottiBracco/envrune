@@ -6,12 +6,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/envrune/envrune/internal/domain"
-	"github.com/envrune/envrune/internal/dotenv"
-	"github.com/envrune/envrune/internal/generator"
-	"github.com/envrune/envrune/internal/project"
-	"github.com/envrune/envrune/internal/runner"
-	"github.com/envrune/envrune/internal/vault"
+	"github.com/YagoLagrottiBracco/envrune/internal/domain"
+	"github.com/YagoLagrottiBracco/envrune/internal/dotenv"
+	"github.com/YagoLagrottiBracco/envrune/internal/generator"
+	"github.com/YagoLagrottiBracco/envrune/internal/project"
+	"github.com/YagoLagrottiBracco/envrune/internal/runner"
+	"github.com/YagoLagrottiBracco/envrune/internal/vault"
 )
 
 var ErrSessionClosed = errors.New("session is closed")

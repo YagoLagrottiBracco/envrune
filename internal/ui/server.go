@@ -19,8 +19,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/envrune/envrune/internal/app"
-	"github.com/envrune/envrune/web"
+	"github.com/YagoLagrottiBracco/envrune/internal/app"
+	"github.com/YagoLagrottiBracco/envrune/web"
 )
 
 var ErrServer = errors.New("local interface unavailable")

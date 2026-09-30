@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/envrune/envrune/internal/dotenv"
-	"github.com/envrune/envrune/internal/domain"
-	"github.com/envrune/envrune/internal/project"
-	"github.com/envrune/envrune/internal/runner"
+	"github.com/YagoLagrottiBracco/envrune/internal/domain"
+	"github.com/YagoLagrottiBracco/envrune/internal/dotenv"
+	"github.com/YagoLagrottiBracco/envrune/internal/project"
+	"github.com/YagoLagrottiBracco/envrune/internal/runner"
 )
 
 func TestGenerateStoresGeneratedSecret(t *testing.T) {

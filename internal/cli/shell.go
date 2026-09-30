@@ -13,12 +13,12 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/envrune/envrune/internal/app"
-	"github.com/envrune/envrune/internal/dotenv"
-	"github.com/envrune/envrune/internal/exporter"
-	"github.com/envrune/envrune/internal/paths"
-	"github.com/envrune/envrune/internal/project"
-	"github.com/envrune/envrune/internal/runner"
+	"github.com/YagoLagrottiBracco/envrune/internal/app"
+	"github.com/YagoLagrottiBracco/envrune/internal/dotenv"
+	"github.com/YagoLagrottiBracco/envrune/internal/exporter"
+	"github.com/YagoLagrottiBracco/envrune/internal/paths"
+	"github.com/YagoLagrottiBracco/envrune/internal/project"
+	"github.com/YagoLagrottiBracco/envrune/internal/runner"
 )
 
 // Shell is a foreground interactive Envrune session. It never invokes a

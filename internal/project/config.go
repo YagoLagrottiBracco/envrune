@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 
-	"github.com/envrune/envrune/internal/domain"
+	"github.com/YagoLagrottiBracco/envrune/internal/domain"
 	"gopkg.in/yaml.v3"
 )
 

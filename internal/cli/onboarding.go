@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/envrune/envrune/internal/app"
-	"github.com/envrune/envrune/internal/paths"
+	"github.com/YagoLagrottiBracco/envrune/internal/app"
+	"github.com/YagoLagrottiBracco/envrune/internal/paths"
 	"golang.org/x/term"
 )
 

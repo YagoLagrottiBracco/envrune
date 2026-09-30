@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/envrune/envrune/internal/domain"
+	"github.com/YagoLagrottiBracco/envrune/internal/domain"
 )
 
 func TestLoadAcceptsVersionedProjectMappings(t *testing.T) {

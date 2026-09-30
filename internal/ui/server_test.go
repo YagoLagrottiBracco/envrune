@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/envrune/envrune/internal/app"
+	"github.com/YagoLagrottiBracco/envrune/internal/app"
 )
 
 type dashboardFixture struct{}

@@ -3,7 +3,7 @@ package vault
 import (
 	"encoding/binary"
 
-	crypto "github.com/envrune/envrune/internal/crypto"
+	crypto "github.com/YagoLagrottiBracco/envrune/internal/crypto"
 )
 
 const headerSize = 76

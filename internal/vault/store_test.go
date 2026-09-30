@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	crypto "github.com/envrune/envrune/internal/crypto"
-	"github.com/envrune/envrune/internal/domain"
+	crypto "github.com/YagoLagrottiBracco/envrune/internal/crypto"
+	"github.com/YagoLagrottiBracco/envrune/internal/domain"
 )
 
 func TestVaultRoundTripKeepsSentinelOutOfCiphertext(t *testing.T) {

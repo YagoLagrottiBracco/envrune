@@ -1,4 +1,4 @@
-module github.com/envrune/envrune
+module github.com/YagoLagrottiBracco/envrune
 
 go 1.27
 

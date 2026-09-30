@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/envrune/envrune/internal/app"
-	"github.com/envrune/envrune/internal/domain"
-	"github.com/envrune/envrune/internal/project"
+	"github.com/YagoLagrottiBracco/envrune/internal/app"
+	"github.com/YagoLagrottiBracco/envrune/internal/domain"
+	"github.com/YagoLagrottiBracco/envrune/internal/project"
 )
 
 func TestShellReadsMasterPasswordOnceAndClosesSession(t *testing.T) {

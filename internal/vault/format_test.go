@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	crypto "github.com/envrune/envrune/internal/crypto"
+	crypto "github.com/YagoLagrottiBracco/envrune/internal/crypto"
 )
 
 func TestHeaderRoundTripPreservesAuthenticatedBytes(t *testing.T) {

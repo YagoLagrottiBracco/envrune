@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"testing"
 
-	crypto "github.com/envrune/envrune/internal/crypto"
-	"github.com/envrune/envrune/internal/vault"
+	crypto "github.com/YagoLagrottiBracco/envrune/internal/crypto"
+	"github.com/YagoLagrottiBracco/envrune/internal/vault"
 )
 
 func TestLinkAndUsageReadCurrentProjectConfiguration(t *testing.T) {

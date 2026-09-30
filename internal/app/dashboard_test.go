@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/envrune/envrune/internal/domain"
-	"github.com/envrune/envrune/internal/project"
+	"github.com/YagoLagrottiBracco/envrune/internal/domain"
+	"github.com/YagoLagrottiBracco/envrune/internal/project"
 )
 
 func TestDashboardExposesOnlyMetadataAndRefreshesProjectMappings(t *testing.T) {

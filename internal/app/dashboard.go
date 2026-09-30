@@ -4,8 +4,8 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/envrune/envrune/internal/project"
-	"github.com/envrune/envrune/internal/vault"
+	"github.com/YagoLagrottiBracco/envrune/internal/project"
+	"github.com/YagoLagrottiBracco/envrune/internal/vault"
 )
 
 // DashboardSnapshot deliberately has no field that can carry a secret value.

@@ -4,14 +4,14 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/envrune/envrune/internal/app"
-	"github.com/envrune/envrune/internal/domain"
-	"github.com/envrune/envrune/internal/dotenv"
-	"github.com/envrune/envrune/internal/exporter"
-	"github.com/envrune/envrune/internal/generator"
-	"github.com/envrune/envrune/internal/project"
-	"github.com/envrune/envrune/internal/runner"
-	"github.com/envrune/envrune/internal/vault"
+	"github.com/YagoLagrottiBracco/envrune/internal/app"
+	"github.com/YagoLagrottiBracco/envrune/internal/domain"
+	"github.com/YagoLagrottiBracco/envrune/internal/dotenv"
+	"github.com/YagoLagrottiBracco/envrune/internal/exporter"
+	"github.com/YagoLagrottiBracco/envrune/internal/generator"
+	"github.com/YagoLagrottiBracco/envrune/internal/project"
+	"github.com/YagoLagrottiBracco/envrune/internal/runner"
+	"github.com/YagoLagrottiBracco/envrune/internal/vault"
 )
 
 // describe turns an error into a message that says what went wrong. Names of
