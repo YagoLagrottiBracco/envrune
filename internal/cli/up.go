@@ -135,6 +135,9 @@ func (w Workspace) up(argv []string) int {
 			return 2
 		}
 		plans = append(plans, plan{name, dir, command, words, r})
+		if !w.maySkipMasking(r, a.flags["no-redact"]) {
+			return 1
+		}
 	}
 
 	// One matcher with every service's values, so a service that prints

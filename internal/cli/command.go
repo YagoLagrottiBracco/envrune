@@ -94,7 +94,7 @@ EnvRune Cloud (end-to-end encrypted sharing; run envrune cloud for details)
   cloud token create|revoke   Machine tokens for CI
 
 Environment variables: ENVRUNE_VAULT, ENVRUNE_PASSWORD_FILE, ENVRUNE_PASSWORD,
-ENVRUNE_IDENTITY, NO_COLOR.
+ENVRUNE_IDENTITY, ENVRUNE_TOKEN, ENVRUNE_CLOUD_SERVER, NO_COLOR.
 `
 
 var builtinCommands = map[string]bool{

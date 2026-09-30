@@ -14,6 +14,8 @@ import (
 	"github.com/YagoLagrottiBracco/envrune/internal/agent"
 	"github.com/YagoLagrottiBracco/envrune/internal/app"
 	"github.com/YagoLagrottiBracco/envrune/internal/clipboard"
+	"github.com/YagoLagrottiBracco/envrune/internal/cloud"
+	"github.com/YagoLagrottiBracco/envrune/internal/domain"
 	"github.com/YagoLagrottiBracco/envrune/internal/dotenv"
 	"github.com/YagoLagrottiBracco/envrune/internal/exporter"
 	"github.com/YagoLagrottiBracco/envrune/internal/project"
@@ -360,10 +362,27 @@ func (w Workspace) link(argv []string) int {
 		return w.fail(err, "The project link could not be created.")
 	}
 	w.status().Success(fmt.Sprintf("Linked %s to %s for environment %s.", variable, ref, environment))
-	if exists, err := w.Session.Has(projectPath, ref); err == nil && !exists {
-		return w.offerValue(ref)
+	exists, err := w.Session.HasIn(projectPath, environment, ref)
+	if err != nil || exists {
+		return 0
 	}
-	return 0
+	if config, err := project.Load(projectPath); err == nil {
+		if path, isCloud, err := app.CloudPath(config, environment, domain.Reference(ref)); isCloud {
+			if err == nil {
+				w.cloudMissing(path)
+			}
+			return 0
+		}
+	}
+	return w.offerValue(ref)
+}
+
+// cloudMissing explains that a cloud secret is not on this device: it is
+// stored in EnvRune Cloud, never in the local vault.
+func (w Workspace) cloudMissing(path cloud.Path) {
+	env := path
+	env.Name = ""
+	w.status().Warn(fmt.Sprintf("%s is not on this device. Run `envrune cloud pull %s`, or store it with `envrune cloud set %s`.", path, env, path))
 }
 
 // offerValue asks for the value of a reference that does not exist yet, so
@@ -425,6 +444,27 @@ func (w Workspace) importFile(argv []string) int {
 	return 0
 }
 
+// mayShow refuses a command that would put values on screen, in a file, or
+// in another service, when a value came from a cloud environment where this
+// user is a consumer.
+func (w Workspace) mayShow(resolved app.Resolved, command string) bool {
+	if resolved.Restricted {
+		w.status().Error(fmt.Sprintf("Your role in the cloud environment (consumer) lets programs use its values; %s would show them. Use run instead.", command))
+		return false
+	}
+	return true
+}
+
+// maySkipMasking refuses --no-redact for a consumer, whose values must
+// stay masked in the output of the commands they run.
+func (w Workspace) maySkipMasking(resolved app.Resolved, noRedact bool) bool {
+	if noRedact && resolved.Restricted {
+		w.status().Error("Your role in the cloud environment (consumer) keeps command output masked; --no-redact is not available.")
+		return false
+	}
+	return true
+}
+
 // resolve finds envrune.yml and resolves one environment, or the default.
 func (w Workspace) resolve(environment string) (string, app.Resolved, error) {
 	projectPath, err := w.findProject()
@@ -445,6 +485,9 @@ func (w Workspace) run(argv []string) int {
 	defer wipePairs(resolved.Pairs)
 	if err != nil {
 		return w.fail(err, "Configured secrets are unavailable.")
+	}
+	if !w.maySkipMasking(resolved, a.flags["no-redact"]) {
+		return 1
 	}
 	w.status().Info(fmt.Sprintf("Starting %s with %d variables from %s.", a.rest[0], len(resolved.Pairs), resolved.Environment))
 	return w.runChild(runner.Spec{Command: a.rest, Additions: resolved.Pairs, Inherited: w.environ()}, !a.flags["no-redact"])
@@ -527,6 +570,9 @@ func (w Workspace) runNamed(projectPath string, config project.Config, name stri
 		return 1
 	}
 	defer wipePairs(resolved.Pairs)
+	if !w.maySkipMasking(resolved, a.flags["no-redact"]) {
+		return 1
+	}
 	w.status().Info(fmt.Sprintf("Running %s with %d variables from %s.", name, len(resolved.Pairs), sourceLabel(command, resolved.Environment)))
 	return w.runChild(runner.Spec{Command: words, Additions: resolved.Pairs, Inherited: w.environ(), Dir: dir}, !a.flags["no-redact"])
 }
@@ -541,6 +587,9 @@ func (w Workspace) export(argv []string) int {
 	defer wipePairs(resolved.Pairs)
 	if err != nil {
 		return w.fail(err, "Configured secrets are unavailable.")
+	}
+	if !w.mayShow(resolved, "export") {
+		return 1
 	}
 	output, err := exportPath(a.options["output"], resolved.Environment)
 	if err != nil {

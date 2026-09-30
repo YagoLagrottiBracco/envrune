@@ -3,9 +3,11 @@ package app
 import (
 	"errors"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/YagoLagrottiBracco/envrune/internal/cloud"
 	"github.com/YagoLagrottiBracco/envrune/internal/domain"
 	"github.com/YagoLagrottiBracco/envrune/internal/dotenv"
 	"github.com/YagoLagrottiBracco/envrune/internal/generator"
@@ -22,6 +24,9 @@ var (
 	// and the command needs the personal vault.
 	ErrNoVault    = errors.New("this command needs the personal vault")
 	ErrNoTeamFile = errors.New("the project has no team file (envrune.team.json)")
+	// ErrNoCloud means envrune.yml uses cloud references and neither a
+	// vault signed in to EnvRune Cloud nor ENVRUNE_TOKEN is available.
+	ErrNoCloud = errors.New("envrune.yml uses EnvRune Cloud references; sign in with `envrune login`, or set ENVRUNE_TOKEN in CI")
 )
 
 // Session keeps one unlocked vault in memory for the lifetime of a command
@@ -33,6 +38,17 @@ type Session struct {
 	vault    *vault.Opened
 	identity string // team identity when there is no vault
 	closed   bool
+	// cloudSource replaces the vault's cloud cache, such as a machine
+	// token fetching from the server in CI.
+	cloudSource CloudSource
+}
+
+// UseCloudSource makes cloud references resolve from source, as CI does
+// with a machine token when there is no vault.
+func (s *Session) UseCloudSource(source CloudSource) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cloudSource = source
 }
 
 func OpenSession(path string, password []byte) (*Session, error) {
@@ -195,9 +211,18 @@ func (s *Session) List() ([]string, error) {
 // Has reports whether a reference resolves, from the vault or, for team
 // references, from the project's team file.
 func (s *Session) Has(projectPath, rawReference string) (bool, error) {
-	value, err := s.Reveal(projectPath, rawReference)
-	if errors.Is(err, vault.ErrUnknownReference) {
+	return s.HasIn(projectPath, "", rawReference)
+}
+
+// HasIn is Has for a reference used in one environment of envrune.yml,
+// which cloud.<name> references need.
+func (s *Session) HasIn(projectPath, environment, rawReference string) (bool, error) {
+	value, err := s.RevealIn(projectPath, environment, rawReference)
+	switch {
+	case errors.Is(err, vault.ErrUnknownReference):
 		return false, nil
+	case errors.Is(err, ErrConsumerValue):
+		return true, nil
 	}
 	wipe(value)
 	return err == nil, err
@@ -205,9 +230,21 @@ func (s *Session) Has(projectPath, rawReference string) (bool, error) {
 
 // Reveal returns a copy of one secret value. The caller wipes it.
 func (s *Session) Reveal(projectPath, rawReference string) ([]byte, error) {
+	return s.RevealIn(projectPath, "", rawReference)
+}
+
+// RevealIn is Reveal for a reference used in one environment of
+// envrune.yml; an empty environment means the default one. It refuses a
+// value this user may only use, as a consumer of its cloud environment.
+func (s *Session) RevealIn(projectPath, environment, rawReference string) ([]byte, error) {
 	ref, err := domain.ParseReference(rawReference)
 	if err != nil {
 		return nil, err
+	}
+	if environment == "" && projectPath != "" {
+		if config, err := project.Load(projectPath); err == nil {
+			environment, _ = ChooseEnvironment(config, "")
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -216,12 +253,16 @@ func (s *Session) Reveal(projectPath, rawReference string) ([]byte, error) {
 	}
 	src := s.sources()
 	defer src.close()
-	value, ok, err := src.value(projectPath, ref)
+	value, ok, err := src.value(projectPath, environment, ref)
 	if err != nil {
 		return nil, err
 	}
 	if !ok {
 		return nil, vault.ErrUnknownReference
+	}
+	if src.restricted {
+		wipe(value)
+		return nil, ErrConsumerValue
 	}
 	return value, nil
 }
@@ -278,6 +319,20 @@ func (s *Session) Secrets(projectPath string) ([]redact.Secret, error) {
 				}
 				if value, ok := file.Value(ref); ok {
 					out = append(out, redact.Secret{Name: name, Value: value})
+				}
+			}
+		}
+		// Cloud values the project uses, from the offline cache, so guard
+		// and scan catch them too. One that is unavailable is skipped.
+		if config, err := project.Load(projectPath); err == nil && config.Cloud != "" {
+			for _, environment := range config.EnvironmentNames() {
+				for _, ref := range config.Environments[environment] {
+					if !strings.HasPrefix(ref.String(), cloud.ReferencePrefix) {
+						continue
+					}
+					if value, ok, err := src.value(projectPath, environment, ref); err == nil && ok {
+						out = append(out, redact.Secret{Name: ref.String(), Value: value})
+					}
 				}
 			}
 		}
@@ -422,7 +477,27 @@ func (s *Session) Snapshot() DashboardSnapshot {
 }
 
 func (s *Session) sources() *sources {
-	return &sources{vault: s.vault, identity: s.identityLocked}
+	return &sources{vault: s.vault, identity: s.identityLocked, cloud: s.cloudLocked()}
+}
+
+// cloudLocked returns where cloud references resolve from: the configured
+// source, else this vault's verified offline cache. The caller holds s.mu.
+func (s *Session) cloudLocked() CloudSource {
+	if s.cloudSource != nil {
+		return s.cloudSource
+	}
+	if s.vault == nil {
+		return nil
+	}
+	v := s.vault
+	return func(path cloud.Path) (map[string][]byte, string, error) {
+		raw := v.CloudState()
+		defer wipe(raw)
+		if len(raw) == 0 {
+			return nil, "", ErrNoCloud
+		}
+		return cloud.CachedValues(raw, path)
+	}
 }
 
 // identityLocked returns the team identity without creating one. The caller

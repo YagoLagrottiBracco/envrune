@@ -71,8 +71,12 @@ func (w Workspace) setupVariable(projectPath string, config project.Config, envi
 	status := w.status()
 	linked, isLinked := config.Environments[environment][v.Name]
 	if isLinked {
-		value, err := w.Session.Reveal(projectPath, linked.String())
+		value, err := w.Session.RevealIn(projectPath, environment, linked.String())
 		switch {
+		case errors.Is(err, app.ErrConsumerValue):
+			// Its checks run when a command starts; a consumer cannot see it.
+			status.Success(fmt.Sprintf("%s is ready (%s).", v.Name, linked))
+			return true, nil
 		case err == nil:
 			reason := v.Check(value)
 			wipe(value)
@@ -83,6 +87,13 @@ func (w Workspace) setupVariable(projectPath string, config project.Config, envi
 			status.Warn(fmt.Sprintf("%s (%s) %s.", v.Name, linked, reason))
 		case !errors.Is(err, vault.ErrUnknownReference):
 			return false, err
+		}
+		if path, isCloud, err := app.CloudPath(config, environment, linked); isCloud {
+			if err != nil {
+				return false, err
+			}
+			w.cloudMissing(path)
+			return false, nil
 		}
 	}
 
@@ -115,6 +126,17 @@ func (w Workspace) setupVariable(projectPath string, config project.Config, envi
 				answer = suggested
 			}
 			if ref, err = domain.ParseReference(answer); err == nil {
+				if path, isCloud, cloudErr := app.CloudPath(config, environment, ref); isCloud {
+					// A cloud secret is linked as it is; its value lives in the cloud.
+					if cloudErr != nil {
+						return false, cloudErr
+					}
+					if exists, err := w.Session.HasIn(projectPath, environment, ref.String()); err != nil || !exists {
+						w.cloudMissing(path)
+						return false, err
+					}
+					return true, w.linkForSetup(projectPath, environment, v.Name, ref)
+				}
 				break
 			}
 			status.Error("Use lowercase words separated by dots, such as shop.database-url.")

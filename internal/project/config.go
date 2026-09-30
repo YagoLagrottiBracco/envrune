@@ -21,6 +21,9 @@ var variableName = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 var commandName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 var driveLetter = regexp.MustCompile(`^[A-Za-z]:`)
 
+// cloudLink is an EnvRune Cloud organization and project, such as acme/shop.
+var cloudLink = regexp.MustCompile(`^[a-z][a-z0-9-]{1,38}/[a-z][a-z0-9-]{0,62}$`)
+
 func VariableName(value string) bool { return variableName.MatchString(value) }
 
 // CommandName reports whether value can name a command in envrune.yml.
@@ -76,9 +79,12 @@ func (c Command) Target(configPath string) (secrets, dir string) {
 }
 
 type Config struct {
-	Version      int
-	Project      string
-	DefaultEnv   string
+	Version    int
+	Project    string
+	DefaultEnv string
+	// Cloud links an EnvRune Cloud project, "org/project"; only then do
+	// references that start with "cloud." resolve from the cloud.
+	Cloud        string
 	Commands     map[string]Command
 	Up           []string
 	Variables    []Variable // in the order envrune.yml lists them
@@ -150,6 +156,13 @@ func parseDocument(root *yaml.Node) (Config, error) {
 		case "default_env":
 			if out.DefaultEnv, err = stringValue(v, "default_env"); err != nil {
 				return Config{}, err
+			}
+		case "cloud":
+			if out.Cloud, err = stringValue(v, "cloud"); err != nil {
+				return Config{}, err
+			}
+			if !cloudLink.MatchString(out.Cloud) {
+				return Config{}, configError(v, "cloud must name an organization and project, such as acme/shop")
 			}
 		case "commands":
 			if out.Commands, err = parseCommands(v); err != nil {
@@ -350,10 +363,11 @@ func WriteAtomic(path string, config Config) error {
 		Version      int                                    `yaml:"version"`
 		Project      string                                 `yaml:"project"`
 		DefaultEnv   string                                 `yaml:"default_env,omitempty"`
+		Cloud        string                                 `yaml:"cloud,omitempty"`
 		Commands     map[string]any                         `yaml:"commands,omitempty"`
 		Up           []string                               `yaml:"up,omitempty"`
 		Environments map[string]map[string]domain.Reference `yaml:"environments"`
-	}{1, config.Project, config.DefaultEnv, commands, config.Up, config.Environments})
+	}{1, config.Project, config.DefaultEnv, config.Cloud, commands, config.Up, config.Environments})
 	if err != nil {
 		return ErrInvalidConfig
 	}

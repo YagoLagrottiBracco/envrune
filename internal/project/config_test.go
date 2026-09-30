@@ -202,3 +202,32 @@ func TestCommandProjectPointsToAnotherEnvrune(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadReadsTheCloudLink(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "envrune.yml")
+	data := "version: 1\nproject: shop\ncloud: acme/shop\nenvironments:\n  production:\n    DATABASE_URL: cloud.database-url\n"
+	if err := os.WriteFile(p, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(p)
+	if err != nil || got.Cloud != "acme/shop" {
+		t.Fatalf("Load() = %#v, %v", got, err)
+	}
+	// Written back, the link stays.
+	if err := WriteAtomic(p, got); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := Load(p); err != nil || again.Cloud != "acme/shop" {
+		t.Fatalf("the link was lost: %#v, %v", again, err)
+	}
+	for _, bad := range []string{"acme", "acme/shop/production", "Acme/shop", "acme/"} {
+		data := "version: 1\nproject: shop\ncloud: " + bad + "\nenvironments: {}\n"
+		if err := os.WriteFile(p, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(p); err == nil {
+			t.Errorf("cloud: %s was accepted", bad)
+		}
+	}
+}

@@ -17,6 +17,10 @@ style of [age](https://age-encryption.org) and
 References that start with `team.` resolve from this file. Everything else
 still comes from your personal vault, so one `envrune.yml` can mix both.
 
+For roles, removing members with key rotation, an audit log, and machine
+tokens scoped per environment, use [EnvRune Cloud](cloud.md) instead; it is
+also end-to-end encrypted.
+
 ### Setting it up
 
 The first member creates the file:
@@ -55,7 +59,9 @@ any change to access control.
 
 ## CI
 
-A pipeline cannot type a password. There are two ways to give it secrets.
+A pipeline cannot type a password. There are two ways to give it secrets,
+and a third for [EnvRune Cloud](cloud.md#ci-and-deploys): a machine token in
+`ENVRUNE_TOKEN`.
 
 ### A team identity (recommended)
 

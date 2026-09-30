@@ -374,3 +374,23 @@ func TestUnwrapNeedsAnAdministratorOrTheRecipient(t *testing.T) {
 		t.Fatalf("carol accepted a key a consumer wrapped for her: %v", err)
 	}
 }
+
+func TestReferencePaths(t *testing.T) {
+	cases := []struct {
+		ref, env, want string
+		cloud, fails   bool
+	}{
+		{ref: "cloud.database-url", env: "production", want: "acme/shop/production/database-url", cloud: true},
+		{ref: "cloud.acme.shared.staging.sentry-dsn", env: "production", want: "acme/shared/staging/sentry-dsn", cloud: true},
+		{ref: "cloud.database-url", env: "", cloud: true, fails: true},
+		{ref: "cloud.acme.shop.key", env: "dev", cloud: true, fails: true},
+		{ref: "personal.cloud", env: "dev"},
+		{ref: "team.stripe", env: "dev"},
+	}
+	for _, c := range cases {
+		path, isCloud, err := ReferencePath(c.ref, "acme/shop", c.env)
+		if isCloud != c.cloud || (err != nil) != c.fails || (err == nil && isCloud && path.String() != c.want) {
+			t.Errorf("%s in %q: %v %v %v", c.ref, c.env, path, isCloud, err)
+		}
+	}
+}

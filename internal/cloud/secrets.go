@@ -224,13 +224,58 @@ func (s *Service) Set(ctx context.Context, path Path, value []byte) (uint64, err
 	return record.Version, nil
 }
 
+// ReferencePrefix starts the envrune.yml references that name cloud
+// secrets, in a project whose envrune.yml links a cloud project.
+const ReferencePrefix = "cloud."
+
+// ReferencePath turns a cloud reference into a path: cloud.<name> is a
+// secret of the linked project (link, "org/project") in the environment
+// being resolved, and cloud.<org>.<project>.<env>.<name> names any secret.
+// It reports false for references that are not cloud references.
+func ReferencePath(ref, link, environment string) (Path, bool, error) {
+	rest, ok := strings.CutPrefix(ref, ReferencePrefix)
+	if !ok {
+		return Path{}, false, nil
+	}
+	parts := strings.Split(rest, ".")
+	var full string
+	switch len(parts) {
+	case 1:
+		if environment == "" {
+			return Path{}, true, fmt.Errorf("%s names a secret of the environment being run; name it in full as cloud.<org>.<project>.<env>.<name> here", ref)
+		}
+		full = link + "/" + environment + "/" + parts[0]
+	case 4:
+		full = strings.Join(parts, "/")
+	default:
+		return Path{}, true, fmt.Errorf("%s is not a cloud reference: use cloud.<name> or cloud.<org>.<project>.<env>.<name>", ref)
+	}
+	path, err := ParsePath(full, true)
+	return path, true, err
+}
+
 // Values decrypts an environment from the offline cache, verifying it
 // again against the pinned roots. It returns this user's verified role, so
 // the caller can apply the consumer limits. The caller wipes the values.
 func (s *Service) Values(path Path) (map[string][]byte, string, error) {
-	st, err := s.state()
+	raw, err := s.Store.CloudState()
 	if err != nil {
 		return nil, "", err
+	}
+	defer wipe(raw)
+	return CachedValues(raw, path)
+}
+
+// CachedValues is Values for a state the caller already read, such as a
+// session resolving envrune.yml while it holds the vault.
+func CachedValues(raw []byte, path Path) (map[string][]byte, string, error) {
+	path.Name = ""
+	st, err := parseState(raw)
+	if err != nil {
+		return nil, "", err
+	}
+	if st.DeviceID == "" {
+		return nil, "", ErrNoAccount
 	}
 	device, err := st.device()
 	if err != nil {

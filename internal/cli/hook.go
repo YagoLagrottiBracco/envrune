@@ -36,6 +36,13 @@ func (w Workspace) env(argv []string) int {
 	if err != nil {
 		return w.fail(err, "Configured secrets are unavailable.")
 	}
+	if resolved.Restricted {
+		// The hook stays silent; eval would put the values in the shell.
+		if !a.flags["hook"] {
+			w.mayShow(resolved, "env")
+		}
+		return 1
+	}
 	if format == "json" {
 		// One object for the envrune packages for Node and Python.
 		values := make(map[string]string, len(resolved.Pairs))

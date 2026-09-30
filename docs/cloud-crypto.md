@@ -304,7 +304,13 @@ environments:
 ```
 
 `cloud.` references resolve from the cache; everything else resolves from
-the local vault and the team file as today.
+the local vault and the team file as today. They go to the cloud only when
+envrune.yml has `cloud:`, so a file written before EnvRune Cloud whose local
+references start with `cloud.` keeps its meaning. With `ENVRUNE_TOKEN` (a
+machine token) they resolve from the server, verified against the roots the
+token pins. Values from an environment where the user is a consumer are
+marked, and the CLI refuses to show, copy, export, or push them, and to run
+commands with `--no-redact`. Usage: [cloud.md](cloud.md).
 
 ## Audit log
 

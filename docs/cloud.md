@@ -1,0 +1,153 @@
+# EnvRune Cloud
+
+EnvRune Cloud shares secrets between the members of a team and with CI,
+end-to-end encrypted: values are encrypted and decrypted by the `envrune`
+CLI on your devices, and the server stores only ciphertext and names. How
+that works, and what a compromised server can and cannot do, is in
+[cloud-crypto.md](cloud-crypto.md).
+
+The local vault keeps working as before, offline and without an account.
+The cloud is optional, and a project can mix local, team, and cloud secrets.
+
+## Sign in and set up your keys
+
+```sh
+envrune login --server https://cloud.example.com   # or set ENVRUNE_CLOUD_SERVER
+envrune cloud init
+```
+
+`login` opens the browser to sign in and hands the session to the CLI. It
+is stored in your vault, encrypted like your secrets.
+
+On your first device, `cloud init` creates your account keys and shows a
+**recovery key once**. Write it down and keep it offline: with it,
+`envrune cloud recover` restores your access if you lose every device.
+
+On another device, `cloud init` registers it as pending and shows a
+fingerprint. Approve it from a device you already use:
+
+```sh
+envrune cloud device approve <id>   # check that both screens show the same fingerprint
+```
+
+Then run `envrune cloud init` on the new device again to finish.
+`envrune cloud whoami` shows your account and device fingerprints.
+
+## Organizations, projects, and members
+
+```sh
+envrune cloud org create acme
+envrune cloud project create acme shop
+envrune cloud env create acme/shop/production
+envrune cloud member add acme alice@example.com --role maintainer --scope shop/*
+```
+
+Before `member add` signs anything, it shows the fingerprint the server
+gave for that person's account. Ask them to run `envrune cloud whoami` and
+compare over another channel, such as a call. A different fingerprint means
+the key is not theirs; do not add it.
+
+Roles:
+
+| Role | Can |
+| --- | --- |
+| owner | everything |
+| admin | manage members, projects, environments, tokens; read and write values |
+| maintainer | read and write values in their scope |
+| consumer | run programs with the values; not see, copy, or export them |
+| auditor | see names, versions, and the audit log; no values |
+
+A scope is a list of `project/environment`, `project/*`, or `*`.
+
+Removing a member (`envrune cloud member remove acme <user-id>`) starts a new
+key for every environment they could use, so they cannot read anything
+written afterwards. **They may still know the values they already read**:
+replace those values. The panel lists them under rotation.
+
+## Secrets
+
+```sh
+envrune cloud set acme/shop/production/stripe-key   # asked twice, never echoed
+envrune cloud pull acme/shop/production             # or: envrune cloud sync
+envrune cloud copy acme/shop/production/stripe-key
+```
+
+`pull` and `sync` download ciphertext, verify every signature, and keep an
+encrypted copy in your vault, so commands keep working offline with the last
+synced state. A server that serves an older version than one you have seen
+is refused (`--allow-older` accepts it).
+
+## Use cloud secrets in envrune.yml
+
+Link the project to a cloud project with `cloud:`, then reference secrets
+with `cloud.`:
+
+```yaml
+version: 1
+project: shop
+cloud: acme/shop
+environments:
+  production:
+    DATABASE_URL: cloud.database-url                    # acme/shop/production/database-url
+    SENTRY_DSN: cloud.acme.shared.production.sentry-dsn # any cloud secret, in full
+    LOCAL_ONLY: personal.local-only                     # the local vault, as before
+```
+
+- `cloud.<name>` is a secret of the linked project, in the environment of
+  the same name as the one being run.
+- `cloud.<org>.<project>.<environment>.<name>` names any secret you can use.
+  Environments whose names contain `.` or `_` can only be used with the short
+  form.
+- References that start with `cloud.` go to the cloud **only when envrune.yml
+  has `cloud:`**, so a file from before EnvRune Cloud that uses local
+  `cloud.*` references keeps working unchanged.
+
+`run`, `up`, named commands, `doctor`, `guard`, and `scan` read cloud values
+from the synced copy. If an environment is not on this device yet, the error
+says which one to pull.
+
+### Consumers
+
+A consumer's values reach programs but not the screen: `run` and `up` always
+mask them in output (`--no-redact` is refused), and `export`, `env`, `copy`,
+and `push` refuse to show them. **This prevents accidents, not a determined
+consumer**: whoever runs a program with a value can read it on their own
+machine, for example by printing it from the program.
+
+## CI and deploys
+
+Create a machine token for the environments a pipeline needs:
+
+```sh
+envrune cloud token create acme --scope shop/production --name deploy --expires 90d
+```
+
+The token is shown once. Store it as a CI secret named `ENVRUNE_TOKEN`, and
+point the CLI at the server:
+
+```yaml
+# .github/workflows/deploy.yml
+- name: Deploy
+  env:
+    ENVRUNE_TOKEN: ${{ secrets.ENVRUNE_TOKEN }}
+    ENVRUNE_CLOUD_SERVER: https://cloud.example.com
+  run: envrune run --env production -- ./deploy.sh
+```
+
+With `ENVRUNE_TOKEN` set, `cloud.` references resolve from the server
+through the token, with no vault and no password. The token carries the
+organization's root keys, so the job verifies who shared the key and who
+wrote each value without trusting the server. Its scope limits what it can
+read; `envrune cloud token revoke <id>` ends it.
+
+## Limits
+
+- The server sees names of organizations, projects, environments, and
+  secrets, who is a member, and when values were fetched. It never sees a
+  value or a key that decrypts one.
+- It can refuse service or hide recent changes from a device that has not
+  seen them yet.
+- It maps `org/project/environment` to an environment without a signature,
+  so it could serve a different environment of the same organization that you
+  or a token may also read; it cannot serve one outside your scope or forge a
+  value.

@@ -16,6 +16,7 @@ type inspectResult struct {
 	Project      string            `json:"project"`
 	Path         string            `json:"path"`
 	DefaultEnv   string            `json:"default_env,omitempty"`
+	Cloud        string            `json:"cloud,omitempty"` // the linked EnvRune Cloud project
 	Environments []variablesResult `json:"environments"`
 	Commands     []commandInfo     `json:"commands"`
 	Up           []string          `json:"up,omitempty"`
@@ -43,7 +44,7 @@ func executeInspect(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, sentence(err.Error()))
 		return 1
 	}
-	out := inspectResult{Project: config.Project, Path: path, Up: config.Up, Problems: config.Validate()}
+	out := inspectResult{Project: config.Project, Path: path, Cloud: config.Cloud, Up: config.Up, Problems: config.Validate()}
 	if environment, err := app.ChooseEnvironment(config, ""); err == nil {
 		out.DefaultEnv = environment
 	}

@@ -195,7 +195,7 @@ func (s mcpServer) listVariables(_ context.Context, _ *mcp.CallToolRequest, in e
 		if ref, ok := mappings[name]; ok {
 			info.Reference = ref.String()
 			if sessionErr == nil {
-				stored, err := session.Has(path, ref.String())
+				stored, err := session.HasIn(path, environment, ref.String())
 				if err == nil {
 					info.Stored = &stored
 				}

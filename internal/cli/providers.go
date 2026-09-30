@@ -108,6 +108,10 @@ func (w Workspace) pull(argv []string) int {
 		if !linked {
 			ref = domain.Reference(suggestReference(config.Project, v.Name, environment))
 		}
+		if path, isCloud, _ := app.CloudPath(config, environment, ref); isCloud {
+			notes = append(notes, fmt.Sprintf("%s is linked to the cloud reference %s; update it with `envrune cloud set %s`", v.Name, ref, path))
+			continue
+		}
 		if team.IsTeamReference(ref) {
 			notes = append(notes, fmt.Sprintf("%s is linked to the team reference %s; update it with `envrune team set %s`", v.Name, ref, ref))
 			continue
@@ -180,6 +184,9 @@ func (w Workspace) push(argv []string) int {
 	defer wipePairs(resolved.Pairs)
 	if err != nil {
 		return w.fail(err, "Configured secrets are unavailable.")
+	}
+	if !w.mayShow(resolved, "push") {
+		return 1
 	}
 	for _, pair := range resolved.Pairs {
 		fmt.Fprintln(w.Stdout, pair.Name)

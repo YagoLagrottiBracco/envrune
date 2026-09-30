@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/YagoLagrottiBracco/envrune/internal/agent"
 	"github.com/YagoLagrottiBracco/envrune/internal/app"
+	"github.com/YagoLagrottiBracco/envrune/internal/cloud"
 	"github.com/YagoLagrottiBracco/envrune/internal/keychain"
 	"github.com/YagoLagrottiBracco/envrune/internal/paths"
 	"github.com/YagoLagrottiBracco/envrune/internal/vault"
@@ -39,10 +41,15 @@ func keychainEnabled(vaultPath string) bool {
 // unlocker opens the vault with the first method that works, in order:
 //
 //  1. ENVRUNE_PASSWORD_FILE or ENVRUNE_PASSWORD, for CI;
-//  2. ENVRUNE_IDENTITY when there is no vault, for team secrets in CI;
+//  2. ENVRUNE_IDENTITY or ENVRUNE_TOKEN when there is no vault, for team
+//     and EnvRune Cloud secrets in CI;
 //  3. a running agent started by `envrune unlock`;
 //  4. the system keychain, after `envrune keychain enable`;
 //  5. the master password prompt.
+//
+// With ENVRUNE_TOKEN, a machine token, cloud references resolve from the
+// server whatever opened the session, verified against the roots the token
+// pins (see cloudSource).
 type unlocker struct {
 	getenv   func(string) string
 	prompt   func(string) ([]byte, error)
@@ -51,6 +58,35 @@ type unlocker struct {
 }
 
 func (u unlocker) session() (*app.Session, error) {
+	session, err := u.open()
+	if err != nil {
+		return nil, err
+	}
+	if token := strings.TrimSpace(u.getenv("ENVRUNE_TOKEN")); token != "" {
+		session.UseCloudSource(machineSource(token, u.getenv))
+	}
+	return session, nil
+}
+
+// machineSource fetches cloud environments with a machine token, from
+// ENVRUNE_CLOUD_SERVER or the default server.
+func machineSource(token string, getenv func(string) string) app.CloudSource {
+	return func(path cloud.Path) (map[string][]byte, string, error) {
+		server := getenv("ENVRUNE_CLOUD_SERVER")
+		if server == "" {
+			server = cloud.DefaultServer
+		}
+		if server == "" {
+			return nil, "", errors.New("set ENVRUNE_CLOUD_SERVER to the EnvRune Cloud address for ENVRUNE_TOKEN")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), cloudTimeout)
+		defer cancel()
+		values, err := cloud.MachineValues(ctx, nil, server, token, path)
+		return values, "", err
+	}
+}
+
+func (u unlocker) open() (*app.Session, error) {
 	path, err := vaultPath(u.getenv)
 	if err != nil {
 		return nil, err
@@ -63,7 +99,8 @@ func (u unlocker) session() (*app.Session, error) {
 		return app.OpenSession(path, password)
 	}
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		if identity := u.getenv("ENVRUNE_IDENTITY"); identity != "" {
+		identity, token := u.getenv("ENVRUNE_IDENTITY"), u.getenv("ENVRUNE_TOKEN")
+		if identity != "" || token != "" {
 			return app.NewIdentitySession(strings.TrimSpace(identity)), nil
 		}
 		return nil, vault.ErrNotFound

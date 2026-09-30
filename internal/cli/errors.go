@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/YagoLagrottiBracco/envrune/internal/app"
 	"github.com/YagoLagrottiBracco/envrune/internal/clipboard"
@@ -30,6 +31,7 @@ func describe(err error, fallback string) string {
 	var notFound *runner.CommandNotFoundError
 	var exit *runner.ExitError
 	var start *runner.StartError
+	var cloudErr *app.CloudError
 	switch {
 	case errors.As(err, &busy):
 		if busy.PID > 0 {
@@ -54,6 +56,11 @@ func describe(err error, fallback string) string {
 		return "The vault is locked. Run `envrune unlock` first."
 	case errors.Is(err, app.ErrNoVault):
 		return "This command needs your personal vault; only ENVRUNE_IDENTITY is available here."
+	case errors.Is(err, app.ErrConsumerValue), errors.Is(err, app.ErrNoCloud):
+		return sentence(err.Error())
+	case errors.As(err, &cloudErr):
+		// Names organizations, environments, and secrets, never a value.
+		return sentence(strings.TrimRight(err.Error(), "."))
 	case errors.Is(err, app.ErrNoTeamFile):
 		return "This project has no envrune.team.json. Create it with `envrune team init <your-name>`."
 	case errors.Is(err, team.ErrNotRecipient):
