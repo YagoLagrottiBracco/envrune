@@ -81,3 +81,47 @@ $ envrune run -- npm start
 Messages name the variable, its reference, and the rule, never the value.
 Variables that `envrune.yml` links but `variables:` does not document are
 not checked.
+
+## Typed settings: `envrune types`
+
+`envrune types` turns `variables:` into code, so editors complete the names
+and a typo fails before runtime. It reads only `envrune.yml`, needs no unlock,
+and never writes a value.
+
+```sh
+envrune types                   # env.d.ts next to envrune.yml (TypeScript)
+envrune types python            # settings.py: a pydantic-settings class
+envrune types --output src/env.d.ts
+envrune types python --output -   # print instead of writing
+```
+
+TypeScript gets declarations for `process.env`. Every value in the
+environment is a string, so each variable is typed `string`, optional when
+`required: false`, with its description, type, and format in a comment:
+
+```ts
+declare namespace NodeJS {
+  interface ProcessEnv {
+    /** Postgres database for the API. Type: url. Format: ^postgres(ql)?:// */
+    readonly DATABASE_URL: string;
+    readonly PORT?: string;
+  }
+}
+```
+
+Python gets a [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
+class that parses and checks the values when you create it: `url` becomes
+`AnyUrl`, `int` and `bool` become `int` and `bool`, and `format` becomes a
+`pattern` on string variables.
+
+```python
+from settings import Settings
+
+settings = Settings()          # fails early if a value does not fit
+print(settings.DATABASE_URL.host)
+```
+
+Variables that an environment links without documenting them are added as
+optional strings, with a note. `types` does not replace a file it did not
+generate unless you pass `--force`. Commit the generated file, and run
+`envrune types` again after changing `variables:`.

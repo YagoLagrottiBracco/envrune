@@ -26,6 +26,8 @@ All notable changes to EnvRune are listed here. The format follows
   how to get it, type, format, required). `envrune setup` walks a developer
   through them, and `run`, `up`, `env`, and `export` refuse values that do not
   fit, naming the variable and the rule.
+- **`envrune types`** generates `env.d.ts` for TypeScript or a pydantic-settings
+  `Settings` class for Python from `variables:`.
 - **`envrune diff <env> <env>`** lists the variables only one environment
   defines and those both point at the same reference, without unlocking.
 - **Output masking:** `run`, named commands, and `up` replace any value a

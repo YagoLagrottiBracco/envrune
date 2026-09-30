@@ -61,6 +61,7 @@ func init() {
 		"scan":     Workspace.scan,
 		"setup":    Workspace.setup,
 		"diff":     Workspace.diff,
+		"types":    Workspace.types,
 		"passwd":   Workspace.passwd,
 		"recovery": Workspace.recovery,
 		"team":     Workspace.team,
