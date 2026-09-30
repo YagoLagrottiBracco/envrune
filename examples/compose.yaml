@@ -1,0 +1,12 @@
+# Start with: envrune run -- docker compose up
+# No value is written here: Compose reads the variables EnvRune injects.
+services:
+  api:
+    image: ghcr.io/acme/api:latest
+    environment:
+      - DATABASE_URL # copied from the environment
+      - STRIPE_KEY
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run this through envrune}

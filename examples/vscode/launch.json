@@ -1,0 +1,31 @@
+{
+  // Run `envrune unlock` (or `envrune keychain enable`) first: the debugger
+  // has no terminal in which to type the master password.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Node.js (envrune)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "envrune",
+      "runtimeArgs": ["run", "--", "node"],
+      "program": "${workspaceFolder}/src/index.js",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "npm run dev (envrune)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "envrune",
+      "runtimeArgs": ["run", "--", "npm", "run", "dev"],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Python attach (envrune)",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": { "host": "127.0.0.1", "port": 5678 },
+      "preLaunchTask": "debugpy (envrune)"
+    }
+  ]
+}

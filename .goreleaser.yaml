@@ -50,6 +50,39 @@ nfpms:
       - rpm
     bindir: /usr/bin
 
+# Package-manager manifests are pushed to their own repositories with the
+# PACKAGES_TOKEN secret (a token with contents:write on both repositories).
+# Without it, they are generated into dist/ and not pushed.
+homebrew_casks:
+  - name: envrune
+    repository:
+      owner: YagoLagrottiBracco
+      name: homebrew-tap
+      token: '{{ index .Env "PACKAGES_TOKEN" }}'
+    skip_upload: '{{ if index .Env "PACKAGES_TOKEN" }}auto{{ else }}true{{ end }}'
+    homepage: https://github.com/YagoLagrottiBracco/envrune
+    description: A deliberate command-line workspace for encrypted environment variables.
+    license: Apache-2.0
+    binaries: [envrune]
+    hooks:
+      post:
+        # The binary is not notarized yet; without this, macOS refuses to run it.
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/envrune"]
+          end
+
+scoops:
+  - name: envrune
+    repository:
+      owner: YagoLagrottiBracco
+      name: scoop-bucket
+      token: '{{ index .Env "PACKAGES_TOKEN" }}'
+    skip_upload: '{{ if index .Env "PACKAGES_TOKEN" }}auto{{ else }}true{{ end }}'
+    homepage: https://github.com/YagoLagrottiBracco/envrune
+    description: A deliberate command-line workspace for encrypted environment variables.
+    license: Apache-2.0
+
 checksum:
   name_template: "checksums.txt"
 

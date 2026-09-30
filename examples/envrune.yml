@@ -1,0 +1,30 @@
+# A monorepo with a FastAPI API, a NestJS backend, and a Next.js front end.
+# Values live in the vault; this file only names them.
+version: 1
+project: shop
+default_env: development
+
+commands:
+  api:
+    run: .venv/bin/python -m uvicorn main:app --reload --port 8000
+    dir: api
+  backend:
+    run: npm run start:dev
+    dir: backend
+  web:
+    run: npm run dev
+    dir: web
+  stack: docker compose up
+
+# `envrune up` starts these together with one unlock.
+up: [api, backend, web]
+
+environments:
+  development:
+    DATABASE_URL: shop.database-url.development
+    STRIPE_KEY: team.stripe.test-key # shared through envrune.team.json
+    JWT_SECRET: shop.jwt-secret.development
+  production:
+    DATABASE_URL: shop.database-url.production
+    STRIPE_KEY: shop.stripe.live-key
+    JWT_SECRET: shop.jwt-secret.production

@@ -41,8 +41,10 @@ needs them directly.
 | --- | --- | --- |
 | **Vault** | Encrypted secret storage | Store values behind readable references such as `payments.development`. |
 | **Projects** | Versionable bindings | Keep variable-to-reference mappings in `envrune.yml`, with no plaintext values. |
-| **Runtime** | Direct process launch | Inject an environment into one child process with `envrune run`. |
-| **Session** | One password prompt | Use `envrune shell` to unlock once for a foreground working session. |
+| **Runtime** | Direct process launch | Inject an environment into one child process with `envrune run`, a named command such as `envrune dev`, or several services at once with `envrune up`. |
+| **Unlock** | One password a day | `envrune unlock --ttl 8h` or the system keychain unlocks every terminal, editor, and hook. |
+| **Teams** | Shared secrets without a server | Commit `envrune.team.json`, encrypted to each member's key; CI gets its own identity. |
+| **Safety net** | Recovery, history, doctor | A recovery key, encrypted backups, rotation with rollback, and `envrune doctor` for forgotten `.env` files. |
 | **Overview** | Local dashboard | Inspect references and project bindings without exposing values in the browser. |
 
 ## Get started
@@ -58,6 +60,15 @@ Download the installer for your system from the
 | **macOS** | `envrune_<version>_macos_universal.pkg` | Open it and follow the installer. Works on Apple Silicon and Intel. |
 | **Debian / Ubuntu** | `envrune_<version>_linux_<arch>.deb` | `sudo apt install ./envrune_<version>_linux_amd64.deb` |
 | **Fedora / RHEL** | `envrune_<version>_linux_<arch>.rpm` | `sudo dnf install ./envrune_<version>_linux_amd64.rpm` |
+
+Package managers, once they are set up for the project (see
+[Distribution](docs/distribution.md)):
+
+```sh
+brew install --cask yagolagrottibracco/tap/envrune       # macOS
+winget install YagoLagrottiBracco.EnvRune                # Windows
+scoop bucket add envrune https://github.com/YagoLagrottiBracco/scoop-bucket && scoop install envrune
+```
 
 On macOS or Linux you can also install with one command:
 
@@ -90,7 +101,7 @@ If your Go binary directory is already on `PATH`, Go can install the command
 for you instead:
 
 ```sh
-go install ./cmd/envrune
+go install github.com/YagoLagrottiBracco/envrune/cmd/envrune@latest
 envrune --help
 ```
 
@@ -103,36 +114,40 @@ envrune
 ```
 
 It asks for explicit confirmation before creating a vault, then asks you to
-set and confirm a master password. That password is not stored and cannot be
-recovered.
+set and confirm a master password. That password is not stored. EnvRune then
+shows a **recovery key** once: write it down and keep it offline, because it
+is the only way back in if you forget the password.
 
 ### 3. Bind a project
 
-Create an `envrune.yml` at the root of a project. It contains only metadata:
+From the root of a project, create an `envrune.yml`. It contains only
+metadata:
+
+```sh
+envrune project init
+```
 
 ```yaml
 version: 1
 project: example-service
-environments: {}
+default_env: development
+environments:
+  development: {}
 ```
 
-Then open an EnvRune session from that project directory:
+Unlock for the day, bind a variable (EnvRune offers to store the value when
+the reference is new), and run your application:
 
 ```sh
-envrune shell
+envrune unlock --ttl 8h
+envrune link SERVICE_TOKEN service.development
+envrune run -- ./your-application
 ```
 
-Inside the session, store a value (it is entered through a hidden prompt),
-bind it to an environment variable, and run your application:
-
-```text
-envrune [unlocked] > set service.development
-envrune [unlocked] > link SERVICE_TOKEN service.development --env development
-envrune [unlocked] > run --env development -- ./your-application
-```
-
-Use `lock` or `exit` when you are done. See the complete walkthrough in
-[Getting started](docs/getting-started.md).
+Name the commands you run often in `envrune.yml` and start them with
+`envrune dev`, or start several at once with `envrune up`. See
+[Getting started](docs/getting-started.md) and
+[Daily workflow](docs/daily-workflow.md).
 
 ## A focused workflow
 
@@ -150,36 +165,49 @@ turning it into a secret-bearing file.
 
 | Command | Use it for |
 | --- | --- |
-| `envrune shell` | Open one foreground session and enter the master password once. |
-| `set <reference>` | Store or replace a value through a hidden terminal prompt. |
-| `list` / `usage <reference>` | Review references and where they are bound. |
-| `link <VAR> <reference> --env <environment>` | Add a binding to the nearest `envrune.yml`. |
-| `generate <reference> --length <n>` | Generate and store a secret. |
-| `import <file.env>` | Import dotenv entries after an interactive confirmation. |
-| `run --env <environment> -- <command>` | Start one direct child process with resolved variables. |
-| `export --env <environment> [--output path] [--force]` | Deliberately create a plaintext dotenv file after confirmation. |
+| `unlock [--ttl 8h]` / `lock` | Unlock the vault for new terminals for a while, or forget the key now. |
+| `keychain enable` | Unlock through Windows Credential Manager, the macOS Keychain, or libsecret. |
+| `shell` | Open one foreground session and enter the master password once. |
+| `set <reference>` | Store or replace a value through a hidden prompt, asked twice. |
+| `list [--long]` / `info` / `usage <reference>` | Review references, their metadata, and where they are bound. |
+| `link <VAR> <reference> [--env e]` | Add a binding to the nearest `envrune.yml`, and offer to store a new value. |
+| `run [--env e] -- <command>` | Start one direct child process with resolved variables. |
+| `<name>` / `up` | Run a command from `commands:` in `envrune.yml`, or several at once. |
+| `copy <reference>` | Copy a value to the clipboard; cleared after 30 seconds. |
+| `rotate` / `rollback` / `history` | Replace a value and keep the previous ones. |
+| `doctor` | Find missing references, forgotten `.env` files, and pasted values. |
+| `team …` / `push github` | Share secrets through `envrune.team.json`; feed CI. |
+| `recover` / `backup` / `restore` | Reset a forgotten password with the recovery key; keep encrypted copies. |
+| `export [--env e] [--output path] [--force]` | Deliberately create a plaintext dotenv file after confirmation. |
 | `ui [--port <port>] [--no-browser]` | Start the metadata-only local dashboard. |
 
-Commands may be run individually, but each one asks for the master password.
-Use `envrune shell` for normal multi-step work. Set `NO_COLOR=1` for plain
-terminal output; redirected output is already plain.
+Run `envrune help` for every command and option. Every command also works
+inside `envrune shell`. Set `NO_COLOR=1` for plain terminal output; redirected
+output is already plain.
 
 ## Documentation
 
 | Guide | Read it when you want to… |
 | --- | --- |
 | [Getting started](docs/getting-started.md) | Build EnvRune, create a vault, and connect a first project. |
+| [Daily workflow](docs/daily-workflow.md) | Unlock once, use a default environment, named commands, `up`, `copy`, `doctor`, rotation, and recovery. |
 | [Advanced usage](docs/advanced-usage.md) | Work with environments, imports, exports, generated values, and sessions. |
+| [Integrations](docs/integrations.md) | Use EnvRune from VS Code, Docker Compose, and a direnv-style terminal hook. |
+| [Teams and CI](docs/teams-and-ci.md) | Share secrets with a team file and give pipelines access. |
+| [Windows and WSL](docs/wsl.md) | Keep one vault or two across Windows and WSL. |
 | [Local dashboard](docs/local-ui.md) | Understand the loopback UI, its token flow, and its limits. |
-| [Security model](docs/security.md) | Review encryption, process handling, threat boundaries, and operating guidance. |
+| [Security model](docs/security.md) | Review encryption, the agent and keychain, team files, and operating guidance. |
 | [Building from source](docs/building.md) | Run checks and produce a local CLI binary. |
+| [Distribution](docs/distribution.md) | Set up Homebrew, Scoop, winget, and apt publishing (maintainers). |
 
 ## Security at a glance
 
 - The vault uses Argon2id for password derivation and XChaCha20-Poly1305 for
   authenticated encryption.
-- The master password is never persisted. Shell sessions retain unlocked state
-  only in the foreground process, then clear it when locked or exited.
+- The master password is never persisted. Values are encrypted under a random
+  data key, wrapped by the password and by a recovery key shown once.
+- Unlocking for later is opt-in: the agent keeps the data key in memory for a
+  time limit you choose, and the keychain stores it under your system login.
 - `run` launches the requested child process directly, without a shell in the
   middle. On Linux, the runner marks itself non-dumpable immediately before
   `exec`.

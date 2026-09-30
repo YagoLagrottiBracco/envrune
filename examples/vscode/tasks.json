@@ -1,0 +1,32 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "dev (envrune)",
+      "type": "shell",
+      "command": "envrune",
+      "args": ["run", "--", "npm", "run", "dev"],
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "all services (envrune up)",
+      "type": "shell",
+      "command": "envrune",
+      "args": ["up"],
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "debugpy (envrune)",
+      "type": "shell",
+      "command": "envrune",
+      "args": ["run", "--", "python", "-m", "debugpy", "--listen", "5678", "--wait-for-client", "main.py"],
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "^$" },
+        "background": { "activesBegin": ".", "endsPattern": "." }
+      }
+    }
+  ]
+}

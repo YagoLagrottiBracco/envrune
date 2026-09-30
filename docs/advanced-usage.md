@@ -1,8 +1,13 @@
 # Advanced usage
 
-EnvRune has two ways to work: individual commands, which prompt for the master
-password every time, and `envrune shell`, which unlocks once for a foreground
-interactive session. Prefer the shell for a series of related operations.
+EnvRune has two ways to work: individual commands, and `envrune shell`, which
+unlocks once for a foreground interactive session. Individual commands prompt
+for the master password unless the vault is unlocked by the agent
+(`envrune unlock`) or the system keychain; see
+[Daily workflow](daily-workflow.md). Every command works in both places.
+
+`--env` is optional wherever it appears below when `envrune.yml` sets
+`default_env` or defines a single environment.
 
 ## References and environments
 
@@ -101,8 +106,10 @@ documented in [Local dashboard](local-ui.md).
 
 ## Sessions, locks, and output
 
-`envrune shell` has no background daemon. The unlocked vault exists only in
-the foreground CLI process. Use `lock` or `exit` to close it deliberately.
+`envrune shell` itself starts no background process. The unlocked vault
+exists only in the foreground CLI process. Use `lock` or `exit` to close it
+deliberately. `unlock` inside the shell starts the optional agent, which keeps
+the key for other terminals until its time limit.
 
 The vault file is locked only for the instant a process reads or writes it,
 never for a whole session. You can keep several shells open and run several
