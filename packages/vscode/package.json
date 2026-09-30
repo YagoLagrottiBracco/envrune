@@ -1,0 +1,92 @@
+{
+  "name": "envrune",
+  "displayName": "EnvRune",
+  "description": "See, run, and debug with the secrets in your EnvRune vault, without .env files",
+  "version": "0.2.0",
+  "publisher": "envrune",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YagoLagrottiBracco/envrune.git",
+    "directory": "packages/vscode"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other",
+    "Debuggers"
+  ],
+  "keywords": [
+    "env",
+    "dotenv",
+    "secrets",
+    "vault"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "workspaceContains:**/envrune.yml",
+    "onDebug"
+  ],
+  "contributes": {
+    "commands": [
+      { "command": "envrune.unlock", "title": "Unlock the Vault for 8 Hours", "category": "EnvRune", "icon": "$(unlock)" },
+      { "command": "envrune.lock", "title": "Lock the Vault", "category": "EnvRune", "icon": "$(lock)" },
+      { "command": "envrune.refresh", "title": "Refresh Projects", "category": "EnvRune", "icon": "$(refresh)" },
+      { "command": "envrune.runCommand", "title": "Run a Command from envrune.yml", "category": "EnvRune", "icon": "$(play)" },
+      { "command": "envrune.linkVariable", "title": "Link Variable", "category": "EnvRune", "icon": "$(link)" },
+      { "command": "envrune.doctor", "title": "Run Doctor", "category": "EnvRune", "icon": "$(pulse)" },
+      { "command": "envrune.menu", "title": "Show Menu", "category": "EnvRune" }
+    ],
+    "views": {
+      "explorer": [
+        { "id": "envrune.projects", "name": "EnvRune", "when": "workspaceContains:**/envrune.yml" }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        { "command": "envrune.refresh", "when": "view == envrune.projects", "group": "navigation" },
+        { "command": "envrune.runCommand", "when": "view == envrune.projects", "group": "navigation" }
+      ],
+      "view/item/context": [
+        { "command": "envrune.runCommand", "when": "view == envrune.projects && viewItem == command", "group": "inline" },
+        { "command": "envrune.linkVariable", "when": "view == envrune.projects && viewItem == unlinkedVariable", "group": "inline" },
+        { "command": "envrune.doctor", "when": "view == envrune.projects && viewItem == project", "group": "inline" }
+      ],
+      "commandPalette": [
+        { "command": "envrune.linkVariable", "when": "false" },
+        { "command": "envrune.menu", "when": "false" }
+      ]
+    },
+    "configuration": {
+      "title": "EnvRune",
+      "properties": {
+        "envrune.path": {
+          "type": "string",
+          "default": "envrune",
+          "description": "The envrune executable, when it is not on PATH."
+        },
+        "envrune.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn about process.env, import.meta.env, and os.environ reads of variables that envrune.yml does not link."
+        },
+        "envrune.diagnostics.ignore": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Variable names not to warn about, in addition to NODE_ENV, PATH, and other system variables."
+        }
+      }
+    },
+    "jsonValidation": [
+      {
+        "fileMatch": "launch.json",
+        "url": "./launch-schema.json"
+      }
+    ]
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}

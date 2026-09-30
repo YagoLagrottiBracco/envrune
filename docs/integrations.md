@@ -7,7 +7,20 @@ then works without a prompt.
 
 ## VS Code
 
-Ready-to-copy files are in [`examples/vscode`](../examples/vscode).
+The [EnvRune extension](../packages/vscode) adds a status bar item that shows
+whether the vault is unlocked, an EnvRune view with each project's
+environments, variables, and commands, warnings on `process.env.X` and
+`os.environ["X"]` reads that `envrune.yml` does not link, and debugging with
+the vault through one line in `launch.json`:
+
+```jsonc
+{ "type": "node", "request": "launch", "program": "${workspaceFolder}/src/server.js", "envrune": true }
+```
+
+It is not on the Marketplace yet; see its README to install it from a
+checkout. Without it, the tasks and launch configurations below run programs
+through `envrune run`. Ready-to-copy files are in
+[`examples/vscode`](../examples/vscode).
 
 ### Tasks
 

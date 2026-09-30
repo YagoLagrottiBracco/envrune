@@ -201,7 +201,7 @@ output is already plain.
 | [Moving from .env files](docs/migrate.md) | Import every `.env` file of a project, or of several, with `envrune migrate`. |
 | [Daily workflow](docs/daily-workflow.md) | Unlock once, use a default environment, named commands, `up`, `copy`, `doctor`, rotation, and recovery. |
 | [Advanced usage](docs/advanced-usage.md) | Work with environments, imports, exports, generated values, and sessions. |
-| [Integrations](docs/integrations.md) | Use EnvRune from VS Code, Docker Compose, and a direnv-style terminal hook. |
+| [Integrations](docs/integrations.md) | Use EnvRune from VS Code (extension, tasks, debugging), Docker Compose, and a direnv-style terminal hook. |
 | [Documented variables](docs/variables.md) | Describe each variable, validate values, and onboard with `envrune setup`. |
 | [Keeping values out of Git](docs/guard.md) | Block commits that contain vault values, and find old leaks. |
 | [AI agents](docs/mcp.md) | Let Claude Code, Cursor, or Copilot run commands with secrets they cannot read. |

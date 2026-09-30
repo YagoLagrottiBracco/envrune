@@ -3,6 +3,23 @@
   // has no terminal in which to type the master password.
   "version": "0.2.0",
   "configurations": [
+    // With the EnvRune extension (packages/vscode), "envrune" adds the
+    // variables to any debug configuration, in memory.
+    {
+      "name": "Node.js (EnvRune extension)",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/index.js",
+      "envrune": true
+    },
+    {
+      "name": "Python (EnvRune extension, staging)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/app.py",
+      "envrune": { "env": "staging" }
+    },
+    // Without the extension, run the program through `envrune run`.
     {
       "name": "Node.js (envrune)",
       "type": "node",

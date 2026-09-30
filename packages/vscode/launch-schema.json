@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "The envrune attribute that the EnvRune extension adds to every debug configuration.",
+  "type": "object",
+  "properties": {
+    "configurations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "envrune": {
+            "description": "Add the variables of envrune.yml from the EnvRune vault to this session. true uses the default environment; { \"env\": \"staging\" } picks one.",
+            "oneOf": [
+              { "type": "boolean" },
+              {
+                "type": "object",
+                "properties": { "env": { "type": "string", "description": "The environment to load." } },
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -20,6 +20,14 @@ All notable changes to EnvRune are listed here. The format follows
 - **`envrune guard`** blocks a commit whose staged changes add a vault or team
   value, naming the file, line, and reference. `guard install` adds it as a
   pre-commit hook; with the vault locked it warns, or blocks with `--strict`.
+- **VS Code extension** in `packages/vscode` (not yet on the Marketplace): a
+  status bar item with the unlock state, a view of projects, environments,
+  variables, and commands, warnings on unlinked `process.env` and `os.environ`
+  reads with a quick fix, and `"envrune": true` in `launch.json` to debug with
+  the vault. An end-to-end test runs it in a real VS Code.
+- **`envrune status --format json|prompt`** and **`envrune inspect`** describe
+  the unlock state and `envrune.yml` for editors and shell prompts, without
+  values or prompts.
 - **`envrune pull` and `envrune push`** with providers: pull from Vercel (REST
   API, `VERCEL_TOKEN`) and 1Password (`op`), push to Vercel and GitHub Actions.
   `pull` shows new, changed, and unchanged variables without values, and

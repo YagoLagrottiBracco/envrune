@@ -77,3 +77,30 @@ jobs:
       - name: Python package
         working-directory: packages/python
         run: python -m unittest discover -s tests -v
+
+      - name: VS Code extension unit tests
+        working-directory: packages/vscode
+        run: npm test
+
+  # Runs the VS Code extension in a real VS Code against a real vault.
+  vscode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build envrune
+        run: go build -o "$RUNNER_TEMP/envrune" ./cmd/envrune
+
+      - name: End-to-end test
+        working-directory: packages/vscode
+        run: |
+          npm install --no-save --no-package-lock @vscode/test-electron
+          xvfb-run -a node test-e2e/run.js "$RUNNER_TEMP/envrune"
