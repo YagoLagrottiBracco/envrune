@@ -27,7 +27,9 @@ All notable changes to EnvRune are listed here. The format follows
   the vault. An end-to-end test runs it in a real VS Code.
 - **`envrune status --format json|prompt`** and **`envrune inspect`** describe
   the unlock state and `envrune.yml` for editors and shell prompts, without
-  values or prompts.
+  values or prompts. The prompt word is empty outside projects
+  (`--always` shows it everywhere); `docs/prompt.md` has Starship and Oh My
+  Posh setups.
 - **`envrune pull` and `envrune push`** with providers: pull from Vercel (REST
   API, `VERCEL_TOKEN`) and 1Password (`op`), push to Vercel and GitHub Actions.
   `pull` shows new, changed, and unchanged variables without values, and

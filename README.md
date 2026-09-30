@@ -202,6 +202,7 @@ output is already plain.
 | [Daily workflow](docs/daily-workflow.md) | Unlock once, use a default environment, named commands, `up`, `copy`, `doctor`, rotation, and recovery. |
 | [Advanced usage](docs/advanced-usage.md) | Work with environments, imports, exports, generated values, and sessions. |
 | [Integrations](docs/integrations.md) | Use EnvRune from VS Code (extension, tasks, debugging), Docker Compose, and a direnv-style terminal hook. |
+| [Vault state in your prompt](docs/prompt.md) | Show locked or unlocked in Starship, Oh My Posh, or any prompt. |
 | [Documented variables](docs/variables.md) | Describe each variable, validate values, and onboard with `envrune setup`. |
 | [Keeping values out of Git](docs/guard.md) | Block commits that contain vault values, and find old leaks. |
 | [AI agents](docs/mcp.md) | Let Claude Code, Cursor, or Copilot run commands with secrets they cannot read. |

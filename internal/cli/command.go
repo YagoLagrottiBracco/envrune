@@ -341,10 +341,10 @@ func (s vaultStatus) promptWord() string {
 }
 
 func executeStatus(args []string, stdout io.Writer, status Presenter) int {
-	a, err := parseArgs(args, []string{"format"}, nil, false)
+	a, err := parseArgs(args, []string{"format"}, []string{"always"}, false)
 	format := a.options["format"]
 	if err != nil || len(a.positional) != 0 || (format != "" && format != "text" && format != "json" && format != "prompt") {
-		status.Error("Usage: envrune status [--format text|json|prompt]")
+		status.Error("Usage: envrune status [--format text|json|prompt] [--always]")
 		return 2
 	}
 	s, err := readStatus(os.Getenv, ".")
@@ -357,7 +357,10 @@ func executeStatus(args []string, stdout io.Writer, status Presenter) int {
 		_ = json.NewEncoder(stdout).Encode(s)
 		return 0
 	case "prompt":
-		fmt.Fprintln(stdout, s.promptWord())
+		// Outside a project the prompt stays clean, unless asked otherwise.
+		if s.Project != "" || a.flags["always"] {
+			fmt.Fprintln(stdout, s.promptWord())
+		}
 		return 0
 	}
 	fmt.Fprintf(stdout, "Vault:     %s\n", s.Vault)
