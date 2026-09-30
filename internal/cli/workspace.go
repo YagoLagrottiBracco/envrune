@@ -445,6 +445,33 @@ func (w Workspace) run(argv []string) int {
 	return code
 }
 
+// resolveCommand resolves a named command's secrets from secrets, the
+// envrune.yml that supplies them, and reports a failure under the command's
+// name so `up` shows which service it was.
+func (w Workspace) resolveCommand(name string, command project.Command, secrets, environment string) (app.Resolved, error) {
+	if command.Project != "" {
+		if _, err := os.Stat(secrets); err != nil {
+			w.status().Error(fmt.Sprintf("commands.%s uses project %s, but %s was not found.", name, command.Project, filepath.ToSlash(filepath.Join(command.Project, filepath.Base(secrets)))))
+			return app.Resolved{}, err
+		}
+	}
+	resolved, err := w.Session.Resolve(secrets, environment)
+	if err != nil {
+		wipePairs(resolved.Pairs)
+		w.status().Error(name + ": " + describe(err, "Configured secrets are unavailable."))
+		return app.Resolved{}, err
+	}
+	return resolved, nil
+}
+
+// sourceLabel names where a command's variables come from in status lines.
+func sourceLabel(command project.Command, environment string) string {
+	if command.Project == "" {
+		return environment
+	}
+	return environment + " in " + filepath.ToSlash(command.Project)
+}
+
 // runNamed runs a command defined under commands: in envrune.yml.
 func (w Workspace) runNamed(projectPath string, config project.Config, name string, argv []string) int {
 	a, err := parseArgs(argv, []string{"env"}, nil, true)
@@ -462,18 +489,19 @@ func (w Workspace) runNamed(projectPath string, config project.Config, name stri
 	if environment == "" {
 		environment = command.Env
 	}
-	resolved, err := w.Session.Resolve(projectPath, environment)
-	defer wipePairs(resolved.Pairs)
+	secrets, dir := command.Target(projectPath)
+	resolved, err := w.resolveCommand(name, command, secrets, environment)
 	if err != nil {
-		return w.fail(err, "Configured secrets are unavailable.")
+		return 1
 	}
+	defer wipePairs(resolved.Pairs)
 	status := w.status()
-	status.Info(fmt.Sprintf("Running %s with %d variables from %s.", name, len(resolved.Pairs), resolved.Environment))
+	status.Info(fmt.Sprintf("Running %s with %d variables from %s.", name, len(resolved.Pairs), sourceLabel(command, resolved.Environment)))
 	process, err := runner.Start(runner.Spec{
 		Command:   words,
 		Additions: resolved.Pairs,
 		Inherited: w.environ(),
-		Dir:       filepath.Join(filepath.Dir(projectPath), command.Dir),
+		Dir:       dir,
 		Stdin:     os.Stdin,
 		Stdout:    w.Stdout,
 		Stderr:    w.Stderr,

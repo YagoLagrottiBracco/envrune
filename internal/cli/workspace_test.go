@@ -101,7 +101,7 @@ func TestRunNamedCommandAndUpWithDefaultEnvironment(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows host command fixture")
 	}
-	config := baseConfig + "commands:\n  hello: cmd /c echo hello %API_KEY%\n  other:\n    run: cmd /c echo other %API_KEY%\n    env: production\n"
+	config := baseConfig + "commands:\n  hello: " + echoCommand("hello") + "\n  other:\n    run: " + echoCommand("other") + "\n    env: production\n"
 	f := newFixture(t, config)
 	if err := f.session.Set("demo.dev", []byte("dev-value")); err != nil {
 		t.Fatal(err)
@@ -267,6 +267,59 @@ func TestHookScriptsAreAvailable(t *testing.T) {
 		var out bytes.Buffer
 		if code := executeHook([]string{shell}, &out, &bytes.Buffer{}); code != 0 || !strings.Contains(out.String(), "envrune env --hook") {
 			t.Fatalf("hook %s = %d: %s", shell, code, out.String())
+		}
+	}
+}
+
+// echoCommand returns a commands: entry that prints label and $API_KEY, then
+// stays up for two seconds, because `up` stops every service as soon as one
+// exits.
+func echoCommand(label string) string {
+	if runtime.GOOS == "windows" {
+		return `cmd /c "echo ` + label + ` %API_KEY% & ping -n 3 127.0.0.1 >nul"`
+	}
+	return `sh -c "echo ` + label + ` $API_KEY; sleep 2"`
+}
+
+func TestUpStartsServicesThatKeepTheirOwnEnvrune(t *testing.T) {
+	config := baseConfig + "commands:\n" +
+		"  api:\n    run: " + echoCommand("api") + "\n    project: api\n" +
+		"  web:\n    run: " + echoCommand("web") + "\n    project: web\n    env: staging\n" +
+		"  ghost:\n    run: " + echoCommand("ghost") + "\n    project: nope\n" +
+		"up: [api, web]\n"
+	f := newFixture(t, config)
+	root := filepath.Dir(f.projectPath)
+	write := func(rel, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(root, filepath.Dir(rel)), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, rel), []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("api/envrune.yml", "version: 1\nproject: api\ndefault_env: development\nenvironments:\n  development:\n    API_KEY: api.key\n")
+	write("web/envrune.yml", "version: 1\nproject: web\ndefault_env: development\nenvironments:\n  development: {}\n  staging:\n    API_KEY: web.staging\n")
+	for ref, value := range map[string]string{"api.key": "api-value", "web.staging": "web-staging"} {
+		if err := f.session.Set(ref, []byte(value)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if code := f.run("up"); code != 0 {
+		t.Fatalf("up = %d: %s", code, f.output())
+	}
+	for _, want := range []string{"api | api api-value", "web | web web-staging", "from development in api", "from staging in web"} {
+		if !strings.Contains(f.output(), want) {
+			t.Fatalf("up output misses %q: %s", want, f.output())
+		}
+	}
+	if code := f.run("ghost"); code == 0 || !strings.Contains(f.output(), "nope/envrune.yml was not found") {
+		t.Fatalf("ghost = %d: %s", code, f.output())
+	}
+	f.run("doctor")
+	for _, want := range []string{"project api (used by commands.api)", "commands.ghost uses project nope, but it has no envrune.yml"} {
+		if !strings.Contains(f.output(), want) {
+			t.Fatalf("doctor output misses %q: %s", want, f.output())
 		}
 	}
 }

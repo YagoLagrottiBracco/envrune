@@ -164,3 +164,41 @@ func TestExampleConfigurationIsValid(t *testing.T) {
 		t.Fatalf("examples/envrune.yml: %v", problems)
 	}
 }
+
+func TestCommandProjectPointsToAnotherEnvrune(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "envrune.yml")
+	data := "version: 1\nproject: shop\ncommands:\n  api:\n    run: npm start\n    project: services/api\n    env: staging\n  web:\n    run: npm run dev\n    project: web\n    dir: web/app\nenvironments: {}\n"
+	if err := os.WriteFile(p, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	config, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if problems := config.Validate(); len(problems) != 0 {
+		t.Fatalf("Validate() = %v; env belongs to the other file", problems)
+	}
+	root := filepath.Dir(p)
+	secrets, dir := config.Commands["api"].Target(p)
+	if secrets != filepath.Join(root, "services", "api", "envrune.yml") || dir != filepath.Join(root, "services", "api") {
+		t.Fatalf("api Target() = %s, %s", secrets, dir)
+	}
+	if _, dir := config.Commands["web"].Target(p); dir != filepath.Join(root, "web", "app") {
+		t.Fatalf("web dir = %s", dir)
+	}
+	if err := WriteAtomic(p, config); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := Load(p); err != nil || again.Commands["api"].Project != "services/api" {
+		t.Fatalf("round trip = %#v, %v", again.Commands, err)
+	}
+	for _, bad := range []string{"/srv/api", `C:\api`, `\api`, `""`} {
+		data := "version: 1\nproject: x\ncommands:\n  api:\n    run: npm start\n    project: " + bad + "\nenvironments: {}\n"
+		if err := os.WriteFile(p, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(p); err == nil {
+			t.Fatalf("Load() accepted project %s", bad)
+		}
+	}
+}

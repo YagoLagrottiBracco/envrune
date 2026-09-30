@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -119,13 +118,15 @@ func (w Workspace) up(argv []string) int {
 		if a.options["env"] != "" {
 			environment = a.options["env"]
 		}
-		r, ok := resolved[environment]
+		secrets, dir := command.Target(projectPath)
+		key := secrets + "\x00" + environment
+		r, ok := resolved[key]
 		if !ok {
-			if r, err = w.Session.Resolve(projectPath, environment); err != nil {
+			if r, err = w.resolveCommand(name, command, secrets, environment); err != nil {
 				stopAll()
-				return w.fail(err, "Configured secrets are unavailable.")
+				return 1
 			}
-			resolved[environment] = r
+			resolved[key] = r
 		}
 		words, err := parseShellLine(command.Run)
 		if err != nil || len(words) == 0 {
@@ -142,7 +143,7 @@ func (w Workspace) up(argv []string) int {
 			Command:   words,
 			Additions: r.Pairs,
 			Inherited: w.environ(),
-			Dir:       filepath.Join(filepath.Dir(projectPath), command.Dir),
+			Dir:       dir,
 			Stdout:    s.stdout,
 			Stderr:    s.stderr,
 			Group:     true,
@@ -152,7 +153,7 @@ func (w Workspace) up(argv []string) int {
 			return w.fail(err, fmt.Sprintf("%s could not start.", name))
 		}
 		services = append(services, s)
-		status.Info(fmt.Sprintf("Started %s (%s) with %d variables from %s.", name, strings.Join(words, " "), len(r.Pairs), r.Environment))
+		status.Info(fmt.Sprintf("Started %s (%s) with %d variables from %s.", name, strings.Join(words, " "), len(r.Pairs), sourceLabel(command, r.Environment)))
 	}
 	status.Info("Press Ctrl+C to stop every service.")
 

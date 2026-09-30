@@ -124,6 +124,37 @@ Ctrl+C stops every service, including the processes they started (for
 example, `npm` starting `node`). When one service exits, the others are
 stopped too, as Procfile runners do.
 
+### Services that keep their own envrune.yml
+
+When each service already has its own `envrune.yml`, such as a monorepo
+with `api/`, `backend/`, and `web/`, or sibling repositories, point a command
+at that folder with `project:` instead of copying its links into one file:
+
+```yaml
+# envrune.yml at the root
+version: 1
+project: shop
+environments: {}
+commands:
+  api:
+    run: .venv/bin/python -m uvicorn main:app --port 8000
+    project: api          # uses api/envrune.yml
+  backend:
+    run: npm run start:dev
+    project: ../shop-backend
+    env: staging          # an environment of ../shop-backend/envrune.yml
+  web:
+    run: npm run dev
+    project: web
+up: [api, backend, web]
+```
+
+A command with `project:` takes its links, `default_env`, and team file from
+that folder's `envrune.yml`, and runs in that folder unless `dir:` says
+otherwise. `envrune up` still asks for the master password once. `project:`
+must be a relative path, so the file works on every machine, and
+`envrune doctor` also checks each `envrune.yml` it points to.
+
 ## Linking a reference that does not exist yet
 
 ```text

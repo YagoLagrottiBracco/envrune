@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/YagoLagrottiBracco/envrune/internal/domain"
 	"gopkg.in/yaml.v3"
@@ -18,6 +19,7 @@ var ErrInvalidConfig = errors.New("invalid project configuration")
 var ErrProjectBusy = errors.New("project configuration is busy")
 var variableName = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 var commandName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
+var driveLetter = regexp.MustCompile(`^[A-Za-z]:`)
 
 func VariableName(value string) bool { return variableName.MatchString(value) }
 
@@ -53,6 +55,24 @@ type Command struct {
 	Run string // parsed like a shell line, but never run by a shell
 	Dir string // relative to envrune.yml; empty means the project root
 	Env string // environment; empty means the default environment
+	// Project is a folder, relative to envrune.yml, whose own envrune.yml
+	// supplies the command's secrets and default environment. It lets one
+	// `envrune up` start services that each keep their own envrune.yml.
+	Project string
+}
+
+// Target returns the envrune.yml that supplies the command's secrets and the
+// folder the command runs in, given the envrune.yml that defines it.
+func (c Command) Target(configPath string) (secrets, dir string) {
+	root := filepath.Dir(configPath)
+	secrets, dir = configPath, filepath.Join(root, c.Dir)
+	if c.Project != "" {
+		secrets = filepath.Join(root, c.Project, filepath.Base(configPath))
+		if c.Dir == "" {
+			dir = filepath.Join(root, c.Project)
+		}
+	}
+	return secrets, dir
 }
 
 type Config struct {
@@ -206,7 +226,7 @@ func parseCommands(node *yaml.Node) (map[string]Command, error) {
 		}
 		fields, err := mappingPairs(value, "commands."+name)
 		if err != nil {
-			return nil, configError(value, "commands.%s must be a command string or a mapping with run, dir, and env", name)
+			return nil, configError(value, "commands.%s must be a command string or a mapping with run, dir, env, and project", name)
 		}
 		var command Command
 		for _, field := range fields {
@@ -221,6 +241,12 @@ func parseCommands(node *yaml.Node) (map[string]Command, error) {
 				command.Dir = text
 			case "env":
 				command.Env = text
+			case "project":
+				// Checked the same way on every system, so the file stays portable.
+				if text == "" || strings.HasPrefix(text, "/") || strings.HasPrefix(text, `\`) || driveLetter.MatchString(text) {
+					return nil, configError(field[1], "commands.%s.project must be a folder relative to envrune.yml", name)
+				}
+				command.Project = text
 			default:
 				return nil, configError(field[0], "commands.%s has unknown key %q", name, field[0].Value)
 			}
@@ -261,8 +287,9 @@ func (c Config) Validate() []string {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		if env := c.Commands[name].Env; env != "" && c.Environments[env] == nil {
-			problems = append(problems, fmt.Sprintf("commands.%s uses environment %q, which does not exist", name, env))
+		// A command with project: uses the environments of that envrune.yml.
+		if command := c.Commands[name]; command.Project == "" && command.Env != "" && c.Environments[command.Env] == nil {
+			problems = append(problems, fmt.Sprintf("commands.%s uses environment %q, which does not exist", name, command.Env))
 		}
 	}
 	for _, name := range c.Up {
@@ -301,16 +328,17 @@ func WriteAtomic(path string, config Config) error {
 		}
 	}
 	type commandYAML struct {
-		Run string `yaml:"run"`
-		Dir string `yaml:"dir,omitempty"`
-		Env string `yaml:"env,omitempty"`
+		Run     string `yaml:"run"`
+		Dir     string `yaml:"dir,omitempty"`
+		Env     string `yaml:"env,omitempty"`
+		Project string `yaml:"project,omitempty"`
 	}
 	commands := map[string]any{}
 	for name, command := range config.Commands {
-		if command.Dir == "" && command.Env == "" {
+		if command.Dir == "" && command.Env == "" && command.Project == "" {
 			commands[name] = command.Run
 		} else {
-			commands[name] = commandYAML{command.Run, command.Dir, command.Env}
+			commands[name] = commandYAML{command.Run, command.Dir, command.Env, command.Project}
 		}
 	}
 	raw, err := yaml.Marshal(struct {

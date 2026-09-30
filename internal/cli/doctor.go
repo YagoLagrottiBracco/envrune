@@ -12,6 +12,39 @@ import (
 	"github.com/YagoLagrottiBracco/envrune/internal/vault"
 )
 
+// checkCommandProjects checks each envrune.yml that commands point to with
+// project:, once per file, with the same checks as the main one.
+func (w Workspace) checkCommandProjects(projectPath string, config project.Config, names []string) []app.Finding {
+	var findings []app.Finding
+	seen := map[string]bool{}
+	for _, name := range names {
+		command := config.Commands[name]
+		if command.Project == "" {
+			continue
+		}
+		secrets, _ := command.Target(projectPath)
+		if seen[secrets] {
+			continue
+		}
+		seen[secrets] = true
+		if _, err := os.Stat(secrets); err != nil {
+			findings = append(findings, app.Finding{Level: app.LevelError, Message: fmt.Sprintf("commands.%s uses project %s, but it has no envrune.yml", name, command.Project)})
+			continue
+		}
+		findings = append(findings, app.Finding{Level: app.LevelOK, Message: fmt.Sprintf("project %s (used by commands.%s):", command.Project, name)})
+		findings = append(findings, app.CheckProject(secrets)...)
+		sub, err := project.Load(secrets)
+		if err != nil {
+			continue
+		}
+		if command.Env != "" && sub.Environments[command.Env] == nil {
+			findings = append(findings, app.Finding{Level: app.LevelError, Message: fmt.Sprintf("commands.%s uses environment %q, which %s does not have", name, command.Env, command.Project)})
+		}
+		findings = append(findings, w.Session.CheckSecrets(secrets, time.Now())...)
+	}
+	return findings
+}
+
 func (w Workspace) doctor(argv []string) int {
 	if len(argv) != 0 {
 		return w.usageError("doctor")
@@ -54,6 +87,7 @@ func (w Workspace) doctor(argv []string) int {
 				}
 			}
 			findings = append(findings, w.Session.CheckSecrets(projectPath, time.Now())...)
+			findings = append(findings, w.checkCommandProjects(projectPath, config, names)...)
 		}
 	}
 	report := NewPresenter(w.Stdout, w.Stdout, os.Getenv)
