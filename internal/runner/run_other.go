@@ -5,5 +5,11 @@ package runner
 import "os/exec"
 
 func configureChild(_ *exec.Cmd) {}
-func childCommand(command []string) (*exec.Cmd, error) { return exec.Command(command[0], command[1:]...), nil }
+
+func childCommand(path string, command []string) (*exec.Cmd, error) {
+	cmd := exec.Command(path, command[1:]...)
+	cmd.Args[0] = command[0]
+	return cmd, nil
+}
+
 func ChildExec(_ []string) int { return 2 }

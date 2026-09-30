@@ -1,8 +1,8 @@
-//go:build !linux
+//go:build !unix && !windows
 
 package vault
 
-type vaultLock struct{}
+import "os"
 
-func acquireLock(string) (*vaultLock, error) { return &vaultLock{}, nil }
-func (*vaultLock) Close()                    {}
+func tryLock(*os.File) (bool, error) { return true, nil }
+func unlock(*os.File)                {}

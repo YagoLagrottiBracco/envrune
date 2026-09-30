@@ -76,7 +76,7 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 	p := SecretPrompt{Output: stderr}
 	password, err := p.Read("Master password")
 	if err != nil {
-		status.Error("Secure interactive input is required.")
+		status.Error(describe(err, "Secure interactive input is required."))
 		return 1
 	}
 	defer wipe(password)
@@ -89,15 +89,15 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 	if args[0] == "init" {
 		confirmation, e := p.Read("Confirm master password")
 		if e != nil {
-			status.Error("Secure interactive input is required.")
+			status.Error(describe(e, "Secure interactive input is required."))
 			return 1
 		}
 		defer wipe(confirmation)
 		err = s.Init(path, password, confirmation)
 	} else if args[0] == "set" {
-		value, e := p.Read("Secret value")
+		value, e := readConfirmedValue(p.Read, "Secret value")
 		if e != nil {
-			status.Error("Secure interactive input is required.")
+			status.Error(describe(e, "Secure interactive input is required."))
 			return 1
 		}
 		defer wipe(value)
@@ -160,7 +160,7 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 			status.Info(fmt.Sprintf("Starting command with %d injected variables.", len(pairs)))
 			code, runErr := runner.Run(args[4:], pairs, os.Environ(), stdout, stderr)
 			if runErr != nil {
-				return code
+				status.Error(describe(runErr, "The command could not be run."))
 			}
 			return code
 		}
@@ -186,7 +186,7 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	if err != nil {
-		status.Error("Command failed. Check your password, vault, and project configuration.")
+		status.Error(describe(err, "Command failed. Check your password, vault, and project configuration."))
 		return 1
 	}
 	switch args[0] {

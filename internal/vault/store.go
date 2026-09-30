@@ -1,6 +1,7 @@
 package vault
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -21,12 +22,15 @@ type payload struct {
 
 const maxVaultBytes = 16 << 20
 
+// Opened is an unlocked vault held in memory. It never keeps the file lock:
+// reads and writes lock the file only while they touch it, and every write
+// first merges in changes other processes committed since this one last read.
+// The header nonce changes on every write, so it doubles as the version.
 type Opened struct {
 	path   string
 	header Header
 	key    []byte
 	data   payload
-	lock   *vaultLock
 }
 
 func Create(path string, password []byte, params crypto.KDFParams) error {
@@ -43,77 +47,73 @@ func Create(path string, password []byte, params crypto.KDFParams) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	salt, nonce := make([]byte, 32), make([]byte, 24)
+	salt := make([]byte, 32)
 	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
-		return err
-	}
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return err
 	}
 	key, err := crypto.DeriveKey(password, salt, params)
 	if err != nil {
 		return err
 	}
-	v := &Opened{path: path, header: Header{Params: params, Salt: salt, Nonce: nonce}, key: key, data: payload{Version: 1, Secrets: map[string][]byte{}, Projects: []string{}}}
-	return v.Commit()
+	v := &Opened{path: path, header: Header{Params: params, Salt: salt}, key: key, data: payload{Version: 1, Secrets: map[string][]byte{}, Projects: []string{}}}
+	defer v.Close()
+	return v.write()
 }
 
 func Open(path string, password []byte) (*Opened, error) {
-	lock, err := acquireLock(path)
+	raw, err := readLocked(path)
 	if err != nil {
 		return nil, err
 	}
-	file, err := os.Open(path)
-	if errors.Is(err, os.ErrNotExist) {
-		lock.Close()
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		lock.Close()
-		return nil, ErrCannotUnlock
-	}
-	raw, err := io.ReadAll(io.LimitReader(file, maxVaultBytes+1))
-	_ = file.Close()
-	if len(raw) > maxVaultBytes {
-		lock.Close()
-		return nil, ErrCannotUnlock
-	}
-	if errors.Is(err, os.ErrNotExist) {
-		lock.Close()
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		lock.Close()
-		return nil, ErrCannotUnlock
-	}
-	if len(raw) < headerSize {
-		lock.Close()
-		return nil, ErrCannotUnlock
-	}
 	h, err := ParseHeader(raw[:headerSize])
 	if err != nil {
-		lock.Close()
 		return nil, ErrCannotUnlock
 	}
 	key, err := crypto.DeriveKey(password, h.Salt, h.Params)
 	if err != nil {
-		lock.Close()
 		return nil, ErrCannotUnlock
 	}
-	plain, err := crypto.Open(key, h.Nonce, raw[headerSize:], raw[:headerSize])
+	data, err := decode(key, h, raw)
 	if err != nil {
-		lock.Close()
-		return nil, ErrCannotUnlock
+		wipe(key)
+		return nil, err
 	}
-	var data payload
-	if json.Unmarshal(plain, &data) != nil || data.Version != 1 || data.Secrets == nil {
-		lock.Close()
-		return nil, ErrCannotUnlock
+	return &Opened{path: path, header: h, key: key, data: data}, nil
+}
+
+// Refresh loads changes that other processes committed since the last read.
+func (v *Opened) Refresh() error {
+	raw, err := readLocked(v.path)
+	if err != nil {
+		return err
 	}
-	if data.Projects == nil {
-		data.Projects = []string{}
+	return v.reload(raw)
+}
+
+// Update applies change to the latest on-disk state and writes the result
+// while holding the lock, so concurrent sessions never overwrite each other.
+func (v *Opened) Update(change func(*Opened) error) error {
+	lock, err := acquireLock(v.path)
+	if err != nil {
+		return err
 	}
-	return &Opened{path: path, header: h, key: key, data: data, lock: lock}, nil
+	defer lock.Close()
+	raw, err := readRaw(v.path)
+	if err != nil {
+		return err
+	}
+	if err := v.reload(raw); err != nil {
+		return err
+	}
+	if err := change(v); err != nil {
+		v.header.Nonce = nil // force the next read to discard partial changes
+		return err
+	}
+	if err := v.write(); err != nil {
+		v.header.Nonce = nil
+		return err
+	}
+	return nil
 }
 
 func (v *Opened) RegisterProject(path string) {
@@ -149,22 +149,64 @@ func (v *Opened) References() []domain.Reference {
 	}
 	return refs
 }
-func (v *Opened) Commit() error {
+
+func (v *Opened) Close() {
+	if v == nil {
+		return
+	}
+	wipe(v.key)
+	v.key = nil
+	v.wipeData()
+	v.data.Secrets = nil
+	v.data.Projects = nil
+}
+
+func (v *Opened) wipeData() {
+	for _, value := range v.data.Secrets {
+		wipe(value)
+	}
+	clear(v.data.Secrets)
+}
+
+// reload replaces the in-memory state when raw holds a newer version.
+func (v *Opened) reload(raw []byte) error {
+	h, err := ParseHeader(raw[:headerSize])
+	if err != nil {
+		return ErrCannotUnlock
+	}
+	if bytes.Equal(h.Nonce, v.header.Nonce) {
+		return nil
+	}
+	if !bytes.Equal(h.Salt, v.header.Salt) || h.Params != v.header.Params {
+		return ErrReplaced
+	}
+	data, err := decode(v.key, h, raw)
+	if err != nil {
+		return err
+	}
+	v.wipeData()
+	v.header, v.data = h, data
+	return nil
+}
+
+// write seals the current state under a fresh nonce. The caller holds the lock.
+func (v *Opened) write() error {
 	plain, err := json.Marshal(v.data)
 	if err != nil {
 		return err
 	}
+	defer wipe(plain)
 	nonce := make([]byte, 24)
 	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
 		return err
 	}
-	v.header.Nonce = nonce
-	header := v.header.MarshalBinary()
-	cipher, err := crypto.Seal(v.key, nonce, plain, header)
+	header := Header{Params: v.header.Params, Salt: v.header.Salt, Nonce: nonce}
+	headerRaw := header.MarshalBinary()
+	cipher, err := crypto.Seal(v.key, nonce, plain, headerRaw)
 	if err != nil {
 		return err
 	}
-	if len(header)+len(cipher) > maxVaultBytes {
+	if len(headerRaw)+len(cipher) > maxVaultBytes {
 		return ErrCannotUnlock
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(v.path), ".vault-")
@@ -174,12 +216,15 @@ func (v *Opened) Commit() error {
 	name := tmp.Name()
 	defer os.Remove(name)
 	if err = tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
 		return err
 	}
-	if _, err = tmp.Write(append(header, cipher...)); err != nil {
+	if _, err = tmp.Write(append(headerRaw, cipher...)); err != nil {
+		_ = tmp.Close()
 		return err
 	}
 	if err = tmp.Sync(); err != nil {
+		_ = tmp.Close()
 		return err
 	}
 	if err = tmp.Close(); err != nil {
@@ -188,26 +233,56 @@ func (v *Opened) Commit() error {
 	if err = os.Rename(name, v.path); err != nil {
 		return err
 	}
+	v.header = header
 	return syncParent(filepath.Dir(v.path))
 }
-func (v *Opened) Close() {
-	if v == nil {
-		return
+
+func readLocked(path string) ([]byte, error) {
+	lock, err := acquireLock(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, ErrNotFound
 	}
-	for i := range v.key {
-		v.key[i] = 0
+	if err != nil {
+		return nil, err
 	}
-	v.key = nil
-	for _, value := range v.data.Secrets {
-		for i := range value {
-			value[i] = 0
-		}
+	defer lock.Close()
+	return readRaw(path)
+}
+
+func readRaw(path string) ([]byte, error) {
+	file, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, ErrNotFound
 	}
-	clear(v.data.Secrets)
-	v.data.Secrets = nil
-	v.data.Projects = nil
-	if v.lock != nil {
-		v.lock.Close()
-		v.lock = nil
+	if err != nil {
+		return nil, ErrCannotUnlock
+	}
+	defer file.Close()
+	raw, err := io.ReadAll(io.LimitReader(file, maxVaultBytes+1))
+	if err != nil || len(raw) > maxVaultBytes || len(raw) < headerSize {
+		return nil, ErrCannotUnlock
+	}
+	return raw, nil
+}
+
+func decode(key []byte, h Header, raw []byte) (payload, error) {
+	plain, err := crypto.Open(key, h.Nonce, raw[headerSize:], raw[:headerSize])
+	if err != nil {
+		return payload{}, ErrCannotUnlock
+	}
+	defer wipe(plain)
+	var data payload
+	if json.Unmarshal(plain, &data) != nil || data.Version != 1 || data.Secrets == nil {
+		return payload{}, ErrCannotUnlock
+	}
+	if data.Projects == nil {
+		data.Projects = []string{}
+	}
+	return data, nil
+}
+
+func wipe(b []byte) {
+	for i := range b {
+		b[i] = 0
 	}
 }

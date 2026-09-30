@@ -8,8 +8,8 @@ import (
 	"time"
 
 	crypto "github.com/envrune/envrune/internal/crypto"
-	"github.com/envrune/envrune/internal/dotenv"
 	"github.com/envrune/envrune/internal/domain"
+	"github.com/envrune/envrune/internal/dotenv"
 	"github.com/envrune/envrune/internal/generator"
 	"github.com/envrune/envrune/internal/project"
 	"github.com/envrune/envrune/internal/runner"
@@ -18,8 +18,6 @@ import (
 
 var ErrPasswordConfirmation = errors.New("master password confirmation does not match")
 var ErrInvalidImport = errors.New("invalid dotenv import")
-var ErrMissingEnvironment = errors.New("environment configuration not found")
-var ErrMissingSecret = errors.New("configured secret is unavailable")
 
 type VaultService struct{}
 
@@ -41,116 +39,62 @@ func (VaultService) Set(path string, password []byte, rawReference string, value
 	if err != nil {
 		return err
 	}
-	v, err := vault.Open(path, password)
-	if err != nil {
-		return err
-	}
-	defer v.Close()
-	if err := v.Put(ref, value, time.Now()); err != nil {
-		return err
-	}
-	return v.Commit()
+	return withVault(path, password, func(v *vault.Opened) error {
+		return v.Update(func(v *vault.Opened) error { return v.Put(ref, value, time.Now()) })
+	})
 }
 
 func (VaultService) Generate(path, rawReference string, length int, password []byte) error {
 	ref, err := domain.ParseReference(rawReference)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	value, err := generator.New(length)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer wipe(value)
-	v, err := vault.Open(path, password)
-	if err != nil { return err }
-	defer v.Close()
-	if err := v.Put(ref, value, time.Now()); err != nil { return err }
-	return v.Commit()
+	return withVault(path, password, func(v *vault.Opened) error {
+		return v.Update(func(v *vault.Opened) error { return v.Put(ref, value, time.Now()) })
+	})
 }
 
 func (VaultService) Import(path string, entries []dotenv.Entry, password []byte) (int, error) {
-	type plannedEntry struct { ref domain.Reference; value []byte }
-	planned := make([]plannedEntry, 0, len(entries))
-	seen := make(map[domain.Reference]struct{})
-	for _, entry := range entries {
-		if !project.VariableName(entry.Name) { return 0, ErrInvalidImport }
-		ref, err := importReference(entry.Name)
-		if err != nil { return 0, ErrInvalidImport }
-		if _, exists := seen[ref]; exists { return 0, ErrInvalidImport }
-		seen[ref] = struct{}{}
-		planned = append(planned, plannedEntry{ref: ref, value: entry.Value})
+	planned, err := planImport(entries)
+	if err != nil {
+		return 0, err
 	}
-	v, err := vault.Open(path, password)
-	if err != nil { return 0, err }
-	defer v.Close()
-	for _, entry := range planned { if err := v.Put(entry.ref, entry.value, time.Now()); err != nil { return 0, err } }
-	if err := v.Commit(); err != nil { return 0, err }
+	err = withVault(path, password, func(v *vault.Opened) error { return v.Update(putAll(planned)) })
+	if err != nil {
+		return 0, err
+	}
 	return len(planned), nil
 }
 
 func (VaultService) ResolveEnvironment(vaultPath, projectPath, environment string, password []byte) ([]runner.Pair, error) {
-	config, err := project.Load(projectPath)
-	if err != nil { return nil, err }
-	mappings, ok := config.Environments[environment]
-	if !ok { return nil, ErrMissingEnvironment }
-	v, err := vault.Open(vaultPath, password)
-	if err != nil { return nil, err }
-	defer v.Close()
-	variables := make([]string, 0, len(mappings))
-	for variable := range mappings { variables = append(variables, variable) }
-	sort.Strings(variables)
-	pairs := make([]runner.Pair, 0, len(variables))
-	for _, variable := range variables {
-		value, exists := v.Value(mappings[variable])
-		if !exists { wipePairs(pairs); return nil, ErrMissingSecret }
-		pairs = append(pairs, runner.Pair{Name: variable, Value: value})
-	}
-	return pairs, nil
+	var pairs []runner.Pair
+	err := withVault(vaultPath, password, func(v *vault.Opened) (err error) {
+		pairs, err = resolveEnvironment(v, projectPath, environment)
+		return err
+	})
+	return pairs, err
 }
-
-func importReference(name string) (domain.Reference, error) {
-	return domain.ParseReference("import.var-" + strings.ReplaceAll(strings.ToLower(name), "_", "-"))
-}
-
-func wipePairs(pairs []runner.Pair) { for _, pair := range pairs { wipe(pair.Value) } }
-func wipe(value []byte) { for i := range value { value[i] = 0 } }
 
 func (VaultService) List(path string, password []byte) ([]string, error) {
-	v, err := vault.Open(path, password)
-	if err != nil {
-		return nil, err
-	}
-	defer v.Close()
-	refs := v.References()
-	out := make([]string, len(refs))
-	for i, r := range refs {
-		out[i] = r.String()
-	}
-	sort.Strings(out)
-	return out, nil
+	var out []string
+	err := withVault(path, password, func(v *vault.Opened) error {
+		out = referenceNames(v)
+		return nil
+	})
+	return out, err
 }
 
 func (VaultService) Link(vaultPath, projectPath, environment, variable, rawReference string, password []byte) error {
-	if environment == "" || !project.VariableName(variable) {
-		return project.ErrInvalidConfig
-	}
-	ref, err := domain.ParseReference(rawReference)
+	change, err := linkChange(projectPath, environment, variable, rawReference)
 	if err != nil {
 		return err
 	}
-	v, err := vault.Open(vaultPath, password)
-	if err != nil {
-		return err
-	}
-	defer v.Close()
-	if err := project.UpdateAtomic(projectPath, func(config *project.Config) error {
-		if config.Environments[environment] == nil {
-			config.Environments[environment] = map[string]domain.Reference{}
-		}
-		config.Environments[environment][variable] = ref
-		return nil
-	}); err != nil {
-		return err
-	}
-	v.RegisterProject(projectPath)
-	return v.Commit()
+	return withVault(vaultPath, password, func(v *vault.Opened) error { return v.Update(change) })
 }
 
 func (VaultService) Usage(vaultPath, rawReference string, password []byte) ([]Usage, error) {
@@ -158,33 +102,104 @@ func (VaultService) Usage(vaultPath, rawReference string, password []byte) ([]Us
 	if err != nil {
 		return nil, err
 	}
-	v, err := vault.Open(vaultPath, password)
+	var out []Usage
+	err = withVault(vaultPath, password, func(v *vault.Opened) error {
+		out = usageFor(v.Projects(), ref)
+		return nil
+	})
+	return out, err
+}
+
+func withVault(path string, password []byte, use func(*vault.Opened) error) error {
+	v, err := vault.Open(path, password)
+	if err != nil {
+		return err
+	}
+	defer v.Close()
+	return use(v)
+}
+
+type plannedEntry struct {
+	ref   domain.Reference
+	value []byte
+}
+
+func planImport(entries []dotenv.Entry) ([]plannedEntry, error) {
+	planned := make([]plannedEntry, 0, len(entries))
+	seen := make(map[domain.Reference]struct{})
+	for _, entry := range entries {
+		if !project.VariableName(entry.Name) {
+			return nil, ErrInvalidImport
+		}
+		ref, err := importReference(entry.Name)
+		if err != nil {
+			return nil, ErrInvalidImport
+		}
+		if _, exists := seen[ref]; exists {
+			return nil, ErrInvalidImport
+		}
+		seen[ref] = struct{}{}
+		planned = append(planned, plannedEntry{ref: ref, value: entry.Value})
+	}
+	return planned, nil
+}
+
+func putAll(planned []plannedEntry) func(*vault.Opened) error {
+	return func(v *vault.Opened) error {
+		for _, entry := range planned {
+			if err := v.Put(entry.ref, entry.value, time.Now()); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+}
+
+func linkChange(projectPath, environment, variable, rawReference string) (func(*vault.Opened) error, error) {
+	if environment == "" || !project.VariableName(variable) {
+		return nil, project.ErrInvalidConfig
+	}
+	ref, err := domain.ParseReference(rawReference)
 	if err != nil {
 		return nil, err
 	}
-	defer v.Close()
-	var out []Usage
-	for _, path := range v.Projects() {
-		config, err := project.Load(path)
-		if err != nil {
-			continue
-		}
-		for environment, mappings := range config.Environments {
-			for variable, mapped := range mappings {
-				if mapped == ref {
-					out = append(out, Usage{path, environment, variable})
-				}
+	return func(v *vault.Opened) error {
+		if err := project.UpdateAtomic(projectPath, func(config *project.Config) error {
+			if config.Environments[environment] == nil {
+				config.Environments[environment] = map[string]domain.Reference{}
 			}
+			config.Environments[environment][variable] = ref
+			return nil
+		}); err != nil {
+			return err
 		}
+		v.RegisterProject(projectPath)
+		return nil
+	}, nil
+}
+
+func referenceNames(v *vault.Opened) []string {
+	refs := v.References()
+	out := make([]string, len(refs))
+	for i, ref := range refs {
+		out[i] = ref.String()
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].ProjectPath != out[j].ProjectPath {
-			return out[i].ProjectPath < out[j].ProjectPath
-		}
-		if out[i].Environment != out[j].Environment {
-			return out[i].Environment < out[j].Environment
-		}
-		return out[i].Variable < out[j].Variable
-	})
-	return out, nil
+	sort.Strings(out)
+	return out
+}
+
+func importReference(name string) (domain.Reference, error) {
+	return domain.ParseReference("import.var-" + strings.ReplaceAll(strings.ToLower(name), "_", "-"))
+}
+
+func wipePairs(pairs []runner.Pair) {
+	for _, pair := range pairs {
+		wipe(pair.Value)
+	}
+}
+
+func wipe(value []byte) {
+	for i := range value {
+		value[i] = 0
+	}
 }

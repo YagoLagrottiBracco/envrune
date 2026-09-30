@@ -24,10 +24,7 @@ func TestVaultRoundTripKeepsSentinelOutOfCiphertext(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, _ := domain.ParseReference("openai.personal")
-	if err := v.Put(r, []byte(sentinel), time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	if err := v.Commit(); err != nil {
+	if err := v.Update(func(v *Opened) error { return v.Put(r, []byte(sentinel), time.Now()) }); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(p)
@@ -102,5 +99,62 @@ func TestOpenRejectsOversizedVault(t *testing.T) {
 	}
 	if _, err := Open(p, []byte("password")); !errors.Is(err, ErrCannotUnlock) {
 		t.Fatalf("Open error = %v", err)
+	}
+}
+
+func TestConcurrentSessionsMergeInsteadOfOverwriting(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "vault.ev1")
+	password := []byte("correct")
+	if err := Create(p, password, crypto.DefaultKDFParams(1)); err != nil {
+		t.Fatal(err)
+	}
+	first, err := Open(p, password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	second, err := Open(p, password)
+	if err != nil {
+		t.Fatalf("second session could not open the vault: %v", err)
+	}
+	defer second.Close()
+	a, _ := domain.ParseReference("first.secret")
+	b, _ := domain.ParseReference("second.secret")
+	if err := first.Update(func(v *Opened) error { return v.Put(a, []byte("a"), time.Now()) }); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Update(func(v *Opened) error { return v.Put(b, []byte("b"), time.Now()) }); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range []domain.Reference{a, b} {
+		if _, ok := first.Value(ref); !ok {
+			t.Fatalf("%s was lost by a concurrent write", ref)
+		}
+	}
+}
+
+func TestHeldLockReportsBusyWithOwnerPID(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "vault.ev1")
+	if err := Create(p, []byte("correct"), crypto.DefaultKDFParams(1)); err != nil {
+		t.Fatal(err)
+	}
+	previous := lockWait
+	lockWait = 50 * time.Millisecond
+	defer func() { lockWait = previous }()
+	held, err := acquireLock(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	_, err = Open(p, []byte("correct"))
+	var busy *BusyError
+	if !errors.As(err, &busy) || !errors.Is(err, ErrBusy) || busy.PID != os.Getpid() {
+		t.Fatalf("Open() error = %v, want BusyError for PID %d", err, os.Getpid())
+	}
+	if errors.Is(err, ErrCannotUnlock) {
+		t.Fatal("a busy vault must not look like a wrong password")
 	}
 }

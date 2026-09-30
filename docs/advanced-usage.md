@@ -104,6 +104,18 @@ documented in [Local dashboard](local-ui.md).
 `envrune shell` has no background daemon. The unlocked vault exists only in
 the foreground CLI process. Use `lock` or `exit` to close it deliberately.
 
+The vault file is locked only for the instant a process reads or writes it,
+never for a whole session. You can keep several shells open and run several
+projects at once. Each read picks up changes that other sessions have
+committed. Each write is applied on top of the latest version on disk, so one
+session never overwrites another session's secrets. If another process holds
+the lock for more than a few seconds, the command reports its PID instead of a
+password error.
+
+`run` looks the command up on `PATH`, so `run --env development -- npm start`
+works without an absolute path. When the command is missing or exits with a
+non-zero code, Envrune says so and returns the same exit code.
+
 EnvRune uses colored status output for an interactive terminal. Set
 `NO_COLOR=1` to disable color. Redirected output is plain so that escape
 sequences do not contaminate pipes or files.

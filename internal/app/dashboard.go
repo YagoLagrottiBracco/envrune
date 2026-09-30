@@ -38,8 +38,8 @@ type BindingMetadata struct {
 	Available bool
 }
 
-// Dashboard owns the vault only for the foreground UI command's lifetime.
-// Keeping it open also keeps its lock: finish the UI before another CLI write.
+// Dashboard keeps the vault unlocked only for the foreground UI command's
+// lifetime. Like Session, it does not hold the file lock between reads.
 type Dashboard struct {
 	mu    sync.Mutex
 	vault *vault.Opened
@@ -65,6 +65,9 @@ func (d *Dashboard) Close() {
 func (d *Dashboard) Snapshot() DashboardSnapshot {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.vault != nil {
+		_ = d.vault.Refresh() // on failure, show the last state that was read
+	}
 	return snapshot(d.vault)
 }
 

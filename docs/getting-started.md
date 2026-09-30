@@ -84,8 +84,10 @@ link SERVICE_TOKEN service.development --env development
 run --env development -- ./your-application
 ```
 
-`set` opens a hidden prompt for the value. It is not echoed and should not be
-pasted into this guide, a commit, or terminal output. `link` changes only
+`set` opens a hidden prompt for the value and asks for it twice. It is not
+echoed and should not be pasted into this guide, a commit, or terminal output.
+If a paste contains more than one line, Envrune discards all of it instead of
+storing the first line and running the rest as commands. `link` changes only
 `envrune.yml`; it associates the `SERVICE_TOKEN` variable with the named vault
 reference. `run` resolves that binding and starts the application directly.
 

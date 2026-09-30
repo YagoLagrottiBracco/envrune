@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/envrune/envrune/internal/app"
+	"github.com/envrune/envrune/internal/domain"
+	"github.com/envrune/envrune/internal/project"
 )
 
 func TestShellReadsMasterPasswordOnceAndClosesSession(t *testing.T) {
@@ -55,7 +57,7 @@ func TestShellStoresAndListsWithoutLeakingSecret(t *testing.T) {
 	if err := (app.VaultService{}).Init(path, password, append([]byte(nil), password...)); err != nil {
 		t.Fatal(err)
 	}
-	prompts := [][]byte{append([]byte(nil), password...), []byte(sentinel)}
+	prompts := [][]byte{append([]byte(nil), password...), []byte(sentinel), []byte(sentinel)}
 	var out, errOut bytes.Buffer
 	shell := Shell{
 		Input:  strings.NewReader("set openai.demo\nlist\nlock\n"),
@@ -182,5 +184,76 @@ func TestParseShellLineRejectsUnclosedQuote(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "shell-secret-sentinel") {
 		t.Fatal("parser reflected the supplied line")
+	}
+}
+
+func TestShellsShareVaultAndExplainFailures(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vault.ev1")
+	password := []byte("shell-master-password")
+	if err := (app.VaultService{}).Init(path, password, append([]byte(nil), password...)); err != nil {
+		t.Fatal(err)
+	}
+	other, err := app.OpenSession(path, password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	if err := other.Set("demo.api-key", []byte("value")); err != nil {
+		t.Fatal(err)
+	}
+	projectDir := t.TempDir()
+	projectPath := filepath.Join(projectDir, "envrune.yml")
+	if err := project.WriteAtomic(projectPath, project.Config{Version: 1, Project: "demo", Environments: map[string]map[string]domain.Reference{
+		"development": {"API_KEY": "demo.api-key", "DATABASE_URL": "demo.database-url.development"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	shell := Shell{
+		Input:       strings.NewReader("list\nrun --env production -- anything\nrun --env development -- anything\nexit\n"),
+		Stdout:      &out,
+		Stderr:      &errOut,
+		ReadSecret:  func(string) ([]byte, error) { return append([]byte(nil), password...), nil },
+		OpenSession: func(got []byte) (*app.Session, error) { return app.OpenSession(path, got) },
+		FindProject: func(string) (string, error) { return projectPath, nil },
+	}
+	if code := shell.Run(); code != 0 {
+		t.Fatalf("Run() = %d: %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "demo.api-key") {
+		t.Fatalf("shell did not see a secret stored by another session: %q", out.String())
+	}
+	for _, want := range []string{
+		`Environment "production" does not exist; available: development.`,
+		"demo.database-url.development (used by DATABASE_URL)",
+	} {
+		if !strings.Contains(errOut.String(), want) {
+			t.Fatalf("missing %q in %q", want, errOut.String())
+		}
+	}
+}
+
+func TestShellRunReportsMissingCommand(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vault.ev1")
+	password := []byte("shell-master-password")
+	if err := (app.VaultService{}).Init(path, password, append([]byte(nil), password...)); err != nil {
+		t.Fatal(err)
+	}
+	projectPath := filepath.Join(t.TempDir(), "envrune.yml")
+	if err := project.WriteAtomic(projectPath, project.Config{Version: 1, Project: "demo", Environments: map[string]map[string]domain.Reference{"development": {}}}); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	shell := Shell{
+		Input:       strings.NewReader("run --env development -- envrune-no-such-command\nexit\n"),
+		Stdout:      &out,
+		Stderr:      &errOut,
+		ReadSecret:  func(string) ([]byte, error) { return append([]byte(nil), password...), nil },
+		OpenSession: func(got []byte) (*app.Session, error) { return app.OpenSession(path, got) },
+		FindProject: func(string) (string, error) { return projectPath, nil },
+	}
+	_ = shell.Run()
+	if !strings.Contains(errOut.String(), "Command not found: envrune-no-such-command") {
+		t.Fatalf("missing command was not reported: %q", errOut.String())
 	}
 }

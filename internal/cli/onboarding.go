@@ -72,18 +72,18 @@ func (o Onboarding) Run() int {
 
 	password, err := o.ReadSecret("Master password")
 	if err != nil {
-		status.Error("Secure interactive input is required.")
+		status.Error(describe(err, "Secure interactive input is required."))
 		return 1
 	}
 	defer wipe(password)
 	confirmation, err := o.ReadSecret("Confirm master password")
 	if err != nil {
-		status.Error("Secure interactive input is required.")
+		status.Error(describe(err, "Secure interactive input is required."))
 		return 1
 	}
 	defer wipe(confirmation)
 	if err := (app.VaultService{}).Init(o.VaultPath, password, confirmation); err != nil {
-		status.Error("Vault initialization failed. Check the passwords and try again.")
+		status.Error(describe(err, "Vault initialization failed. Check the passwords and try again."))
 		return 1
 	}
 	status.Success("Vault initialized. Run `envrune shell` to begin.")

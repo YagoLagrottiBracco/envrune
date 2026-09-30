@@ -66,13 +66,13 @@ func (s Shell) Run() int {
 	}
 	password, err := s.ReadSecret("Master password")
 	if err != nil {
-		status.Error("Secure interactive input is required.")
+		status.Error(describe(err, "Secure interactive input is required."))
 		return 1
 	}
 	session, err := s.OpenSession(password)
 	wipe(password)
 	if err != nil {
-		status.Error("Unable to unlock the vault.")
+		status.Error(describe(err, "Unable to unlock the vault."))
 		return 1
 	}
 	defer session.Close()
@@ -138,13 +138,13 @@ func (s Shell) execute(session *app.Session, status Presenter, args []string) (i
 			status.Error("Usage: set <secret-reference>")
 			return 2, false
 		}
-		value, err := s.ReadSecret("Secret value")
+		value, err := readConfirmedValue(s.ReadSecret, "Secret value")
 		if err == nil {
 			err = session.Set(args[1], value)
 		}
 		wipe(value)
 		if err != nil {
-			status.Error("Secret could not be stored.")
+			status.Error(describe(err, "Secret could not be stored."))
 			return 1, false
 		}
 		status.Success(fmt.Sprintf("Secret stored: %s", args[1]))
@@ -155,7 +155,7 @@ func (s Shell) execute(session *app.Session, status Presenter, args []string) (i
 		}
 		refs, err := session.List()
 		if err != nil {
-			status.Error("Secret references are unavailable.")
+			status.Error(describe(err, "Secret references are unavailable."))
 			return 1, false
 		}
 		for _, ref := range refs {
@@ -172,7 +172,7 @@ func (s Shell) execute(session *app.Session, status Presenter, args []string) (i
 			err = session.Link(projectPath, args[4], args[1], args[2])
 		}
 		if err != nil {
-			status.Error("The project link could not be created.")
+			status.Error(describe(err, "The project link could not be created."))
 			return 1, false
 		}
 		status.Success(fmt.Sprintf("Linked %s for environment %s.", args[1], args[4]))
@@ -183,7 +183,7 @@ func (s Shell) execute(session *app.Session, status Presenter, args []string) (i
 		}
 		usages, err := session.Usage(args[1])
 		if err != nil {
-			status.Error("Secret usage is unavailable.")
+			status.Error(describe(err, "Secret usage is unavailable."))
 			return 1, false
 		}
 		for _, usage := range usages {
@@ -200,7 +200,7 @@ func (s Shell) execute(session *app.Session, status Presenter, args []string) (i
 			err = session.Generate(args[1], length)
 		}
 		if err != nil {
-			status.Error("Secret generation failed.")
+			status.Error(describe(err, "Secret generation failed."))
 			return 1, false
 		}
 		status.Success(fmt.Sprintf("Generated and stored a %d-character secret.", length))
@@ -226,7 +226,7 @@ func (s Shell) execute(session *app.Session, status Presenter, args []string) (i
 			}
 		}
 		if err != nil {
-			status.Error("Secrets could not be imported.")
+			status.Error(describe(err, "Secrets could not be imported."))
 			return 1, false
 		}
 		status.Success("Secrets imported.")
@@ -258,7 +258,7 @@ func (s Shell) executeRuntimeCommand(session *app.Session, status Presenter, arg
 	pairs, err := session.ResolveEnvironment(projectPath, args[2])
 	defer wipePairs(pairs)
 	if err != nil {
-		status.Error("Configured secrets are unavailable.")
+		status.Error(describe(err, "Configured secrets are unavailable."))
 		return 1, false
 	}
 	if args[0] == "run" {
@@ -271,7 +271,10 @@ func (s Shell) executeRuntimeCommand(session *app.Session, status Presenter, arg
 		if environment == nil {
 			environment = os.Environ
 		}
-		code, _ := runner.Run(args[4:], pairs, environment(), s.Stdout, s.Stderr)
+		code, runErr := runner.Run(args[4:], pairs, environment(), s.Stdout, s.Stderr)
+		if runErr != nil {
+			status.Error(describe(runErr, "The command could not be run."))
+		}
 		return code, false
 	}
 	output, force, err := exportArguments(args[3:], args[2])
@@ -292,7 +295,7 @@ func (s Shell) executeRuntimeCommand(session *app.Session, status Presenter, arg
 		return 1, false
 	}
 	if err := exporter.Write(output, pairs, force); err != nil {
-		status.Error("Plaintext export could not be created.")
+		status.Error(describe(err, "Plaintext export could not be created."))
 		return 1, false
 	}
 	status.Success("Plaintext export created.")

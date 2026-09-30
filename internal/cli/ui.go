@@ -51,7 +51,7 @@ func executeUI(args []string, stdout, stderr io.Writer) int {
 	status := NewPresenter(stdout, stderr, os.Getenv)
 	password, err := (SecretPrompt{Output: stderr}).Read("Master password")
 	if err != nil {
-		status.Error("Secure interactive input is required.")
+		status.Error(describe(err, "Secure interactive input is required."))
 		return 1
 	}
 	defer wipe(password)
@@ -63,7 +63,7 @@ func executeUI(args []string, stdout, stderr io.Writer) int {
 	dashboard, err := app.OpenDashboard(path, password)
 	wipe(password)
 	if err != nil {
-		status.Error("Command failed. Check your password and vault.")
+		status.Error(describe(err, "Command failed. Check your password and vault."))
 		return 1
 	}
 	defer dashboard.Close()

@@ -16,7 +16,10 @@ import (
 
 var ErrSessionClosed = errors.New("session is closed")
 
-// Session owns one opened vault for the lifetime of an interactive shell.
+// Session keeps one unlocked vault in memory for the lifetime of an
+// interactive shell. It does not hold the vault file lock, so other shells and
+// commands can use the vault at the same time: reads pick up their changes and
+// writes are merged on top of them.
 type Session struct {
 	mu    sync.Mutex
 	vault *vault.Opened
@@ -47,12 +50,7 @@ func (s *Session) Set(rawReference string, value []byte) error {
 	if err != nil {
 		return err
 	}
-	return s.mutate(func(v *vault.Opened) error {
-		if err := v.Put(ref, value, time.Now()); err != nil {
-			return err
-		}
-		return v.Commit()
-	})
+	return s.mutate(func(v *vault.Opened) error { return v.Put(ref, value, time.Now()) })
 }
 
 func (s *Session) Generate(rawReference string, length int) error {
@@ -65,85 +63,35 @@ func (s *Session) Generate(rawReference string, length int) error {
 		return err
 	}
 	defer wipe(value)
-	return s.mutate(func(v *vault.Opened) error {
-		if err := v.Put(ref, value, time.Now()); err != nil {
-			return err
-		}
-		return v.Commit()
-	})
+	return s.mutate(func(v *vault.Opened) error { return v.Put(ref, value, time.Now()) })
 }
 
 func (s *Session) Import(entries []dotenv.Entry) (int, error) {
-	type plannedEntry struct {
-		ref   domain.Reference
-		value []byte
-	}
-	planned := make([]plannedEntry, 0, len(entries))
-	seen := make(map[domain.Reference]struct{})
-	for _, entry := range entries {
-		if !project.VariableName(entry.Name) {
-			return 0, ErrInvalidImport
-		}
-		ref, err := importReference(entry.Name)
-		if err != nil {
-			return 0, ErrInvalidImport
-		}
-		if _, exists := seen[ref]; exists {
-			return 0, ErrInvalidImport
-		}
-		seen[ref] = struct{}{}
-		planned = append(planned, plannedEntry{ref: ref, value: entry.Value})
-	}
-	err := s.mutate(func(v *vault.Opened) error {
-		for _, entry := range planned {
-			if err := v.Put(entry.ref, entry.value, time.Now()); err != nil {
-				return err
-			}
-		}
-		return v.Commit()
-	})
+	planned, err := planImport(entries)
 	if err != nil {
+		return 0, err
+	}
+	if err := s.mutate(putAll(planned)); err != nil {
 		return 0, err
 	}
 	return len(planned), nil
 }
 
 func (s *Session) List() ([]string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.vault == nil {
-		return nil, ErrSessionClosed
-	}
-	refs := s.vault.References()
-	out := make([]string, len(refs))
-	for i, ref := range refs {
-		out[i] = ref.String()
-	}
-	sort.Strings(out)
-	return out, nil
+	var out []string
+	err := s.read(func(v *vault.Opened) error {
+		out = referenceNames(v)
+		return nil
+	})
+	return out, err
 }
 
 func (s *Session) Link(projectPath, environment, variable, rawReference string) error {
-	if environment == "" || !project.VariableName(variable) {
-		return project.ErrInvalidConfig
-	}
-	ref, err := domain.ParseReference(rawReference)
+	change, err := linkChange(projectPath, environment, variable, rawReference)
 	if err != nil {
 		return err
 	}
-	return s.mutate(func(v *vault.Opened) error {
-		if err := project.UpdateAtomic(projectPath, func(config *project.Config) error {
-			if config.Environments[environment] == nil {
-				config.Environments[environment] = map[string]domain.Reference{}
-			}
-			config.Environments[environment][variable] = ref
-			return nil
-		}); err != nil {
-			return err
-		}
-		v.RegisterProject(projectPath)
-		return v.Commit()
-	})
+	return s.mutate(change)
 }
 
 func (s *Session) Usage(rawReference string) ([]Usage, error) {
@@ -151,49 +99,43 @@ func (s *Session) Usage(rawReference string) ([]Usage, error) {
 	if err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.vault == nil {
-		return nil, ErrSessionClosed
-	}
-	return usageFor(s.vault.Projects(), ref), nil
+	var out []Usage
+	err = s.read(func(v *vault.Opened) error {
+		out = usageFor(v.Projects(), ref)
+		return nil
+	})
+	return out, err
 }
 
 func (s *Session) ResolveEnvironment(projectPath, environment string) ([]runner.Pair, error) {
-	config, err := project.Load(projectPath)
-	if err != nil {
-		return nil, err
-	}
-	mappings, ok := config.Environments[environment]
-	if !ok {
-		return nil, ErrMissingEnvironment
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.vault == nil {
-		return nil, ErrSessionClosed
-	}
-	variables := make([]string, 0, len(mappings))
-	for variable := range mappings {
-		variables = append(variables, variable)
-	}
-	sort.Strings(variables)
-	pairs := make([]runner.Pair, 0, len(variables))
-	for _, variable := range variables {
-		value, exists := s.vault.Value(mappings[variable])
-		if !exists {
-			wipePairs(pairs)
-			return nil, ErrMissingSecret
-		}
-		pairs = append(pairs, runner.Pair{Name: variable, Value: value})
-	}
-	return pairs, nil
+	var pairs []runner.Pair
+	err := s.read(func(v *vault.Opened) (err error) {
+		pairs, err = resolveEnvironment(v, projectPath, environment)
+		return err
+	})
+	return pairs, err
 }
 
 func (s *Session) Snapshot() DashboardSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.vault != nil {
+		_ = s.vault.Refresh() // on failure, show the last state that was read
+	}
 	return snapshot(s.vault)
+}
+
+// read runs use against the latest committed state of the vault.
+func (s *Session) read(use func(*vault.Opened) error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.vault == nil {
+		return ErrSessionClosed
+	}
+	if err := s.vault.Refresh(); err != nil {
+		return err
+	}
+	return use(s.vault)
 }
 
 func (s *Session) mutate(change func(*vault.Opened) error) error {
@@ -202,7 +144,7 @@ func (s *Session) mutate(change func(*vault.Opened) error) error {
 	if s.vault == nil {
 		return ErrSessionClosed
 	}
-	return change(s.vault)
+	return s.vault.Update(change)
 }
 
 func usageFor(paths []string, ref domain.Reference) []Usage {
