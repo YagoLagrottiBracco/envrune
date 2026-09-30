@@ -104,3 +104,22 @@ jobs:
         run: |
           npm install --no-save --no-package-lock @vscode/test-electron
           xvfb-run -a node test-e2e/run.js "$RUNNER_TEMP/envrune"
+
+  # EnvRune Cloud: the database schema and its access rules.
+  cloud-database:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloud
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start Postgres with the migrations
+        run: supabase db start
+
+      - name: Access-rule tests
+        run: supabase test db
