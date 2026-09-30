@@ -2,10 +2,13 @@
 package project
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 
 	"github.com/YagoLagrottiBracco/envrune/internal/domain"
 	"gopkg.in/yaml.v3"
@@ -14,12 +17,50 @@ import (
 var ErrInvalidConfig = errors.New("invalid project configuration")
 var ErrProjectBusy = errors.New("project configuration is busy")
 var variableName = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+var commandName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
 func VariableName(value string) bool { return variableName.MatchString(value) }
+
+// CommandName reports whether value can name a command in envrune.yml.
+func CommandName(value string) bool { return commandName.MatchString(value) }
+
+// ConfigError says where envrune.yml is wrong. It never carries values from
+// the file other than key names.
+type ConfigError struct {
+	Line    int
+	Message string
+}
+
+func (e *ConfigError) Error() string {
+	if e.Line > 0 {
+		return fmt.Sprintf("envrune.yml line %d: %s", e.Line, e.Message)
+	}
+	return "envrune.yml: " + e.Message
+}
+
+func (e *ConfigError) Is(target error) bool { return target == ErrInvalidConfig }
+
+func configError(node *yaml.Node, format string, args ...any) error {
+	line := 0
+	if node != nil {
+		line = node.Line
+	}
+	return &ConfigError{Line: line, Message: fmt.Sprintf(format, args...)}
+}
+
+// Command is a named command from envrune.yml, run with `envrune <name>`.
+type Command struct {
+	Run string // parsed like a shell line, but never run by a shell
+	Dir string // relative to envrune.yml; empty means the project root
+	Env string // environment; empty means the default environment
+}
 
 type Config struct {
 	Version      int
 	Project      string
+	DefaultEnv   string
+	Commands     map[string]Command
+	Up           []string
 	Environments map[string]map[string]domain.Reference
 }
 
@@ -29,55 +70,217 @@ func Load(path string) (Config, error) {
 		return Config{}, ErrInvalidConfig
 	}
 	var node yaml.Node
-	if yaml.Unmarshal(raw, &node) != nil || len(node.Content) != 1 {
-		return Config{}, ErrInvalidConfig
+	if err := yaml.Unmarshal(raw, &node); err != nil {
+		return Config{}, &ConfigError{Message: "not valid YAML"}
+	}
+	if len(node.Content) != 1 {
+		return Config{}, &ConfigError{Message: "expected one YAML document"}
 	}
 	return parseDocument(node.Content[0])
 }
 
+func mappingPairs(node *yaml.Node, what string) ([][2]*yaml.Node, error) {
+	if node.Kind != yaml.MappingNode || len(node.Content)%2 != 0 {
+		return nil, configError(node, "%s must be a mapping", what)
+	}
+	seen := map[string]bool{}
+	pairs := make([][2]*yaml.Node, 0, len(node.Content)/2)
+	for i := 0; i < len(node.Content); i += 2 {
+		k, v := node.Content[i], node.Content[i+1]
+		if k.Kind != yaml.ScalarNode || k.Tag != "!!str" || k.Value == "" {
+			return nil, configError(k, "%s has an invalid key", what)
+		}
+		if seen[k.Value] {
+			return nil, configError(k, "%s has a duplicate key %q", what, k.Value)
+		}
+		seen[k.Value] = true
+		pairs = append(pairs, [2]*yaml.Node{k, v})
+	}
+	return pairs, nil
+}
+
+func stringValue(node *yaml.Node, what string) (string, error) {
+	if node.Kind != yaml.ScalarNode || node.Tag != "!!str" || node.Value == "" {
+		return "", configError(node, "%s must be a non-empty string", what)
+	}
+	return node.Value, nil
+}
+
 func parseDocument(root *yaml.Node) (Config, error) {
-	if root.Kind != yaml.MappingNode || len(root.Content)%2 != 0 {
-		return Config{}, ErrInvalidConfig
+	pairs, err := mappingPairs(root, "the document")
+	if err != nil {
+		return Config{}, err
 	}
-	values := map[string]*yaml.Node{}
-	for i := 0; i < len(root.Content); i += 2 {
-		k, v := root.Content[i], root.Content[i+1]
-		if k.Kind != yaml.ScalarNode || values[k.Value] != nil {
-			return Config{}, ErrInvalidConfig
-		}
-		values[k.Value] = v
-	}
-	if len(values) != 3 || values["version"] == nil || values["project"] == nil || values["environments"] == nil {
-		return Config{}, ErrInvalidConfig
-	}
-	if values["version"].Kind != yaml.ScalarNode || values["version"].Tag != "!!int" || values["version"].Value != "1" || values["project"].Kind != yaml.ScalarNode || values["project"].Tag != "!!str" || values["project"].Value == "" {
-		return Config{}, ErrInvalidConfig
-	}
-	envs := values["environments"]
-	if envs.Kind != yaml.MappingNode || len(envs.Content)%2 != 0 {
-		return Config{}, ErrInvalidConfig
-	}
-	out := Config{Version: 1, Project: values["project"].Value, Environments: map[string]map[string]domain.Reference{}}
-	for i := 0; i < len(envs.Content); i += 2 {
-		e, m := envs.Content[i], envs.Content[i+1]
-		if e.Kind != yaml.ScalarNode || e.Tag != "!!str" || e.Value == "" || m.Kind != yaml.MappingNode || len(m.Content)%2 != 0 || out.Environments[e.Value] != nil {
-			return Config{}, ErrInvalidConfig
-		}
-		vars := map[string]domain.Reference{}
-		for j := 0; j < len(m.Content); j += 2 {
-			k, v := m.Content[j], m.Content[j+1]
-			if k.Kind != yaml.ScalarNode || k.Tag != "!!str" || v.Kind != yaml.ScalarNode || v.Tag != "!!str" || !variableName.MatchString(k.Value) || vars[k.Value] != "" {
-				return Config{}, ErrInvalidConfig
+	out := Config{Version: 1, Commands: map[string]Command{}, Environments: map[string]map[string]domain.Reference{}}
+	var seenVersion, seenProject, seenEnvironments bool
+	for _, pair := range pairs {
+		k, v := pair[0], pair[1]
+		switch k.Value {
+		case "version":
+			if v.Kind != yaml.ScalarNode || v.Tag != "!!int" || v.Value != "1" {
+				return Config{}, configError(v, "version must be 1")
 			}
-			ref, err := domain.ParseReference(v.Value)
-			if err != nil {
-				return Config{}, ErrInvalidConfig
+			seenVersion = true
+		case "project":
+			if out.Project, err = stringValue(v, "project"); err != nil {
+				return Config{}, err
 			}
-			vars[k.Value] = ref
+			seenProject = true
+		case "default_env":
+			if out.DefaultEnv, err = stringValue(v, "default_env"); err != nil {
+				return Config{}, err
+			}
+		case "commands":
+			if out.Commands, err = parseCommands(v); err != nil {
+				return Config{}, err
+			}
+		case "up":
+			if out.Up, err = parseUp(v); err != nil {
+				return Config{}, err
+			}
+		case "environments":
+			if out.Environments, err = parseEnvironments(v); err != nil {
+				return Config{}, err
+			}
+			seenEnvironments = true
+		default:
+			return Config{}, configError(k, "unknown key %q", k.Value)
 		}
-		out.Environments[e.Value] = vars
+	}
+	if !seenVersion || !seenProject || !seenEnvironments {
+		return Config{}, configError(root, "version, project, and environments are required")
 	}
 	return out, nil
+}
+
+func parseEnvironments(node *yaml.Node) (map[string]map[string]domain.Reference, error) {
+	pairs, err := mappingPairs(node, "environments")
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]map[string]domain.Reference{}
+	for _, pair := range pairs {
+		environment, mapping := pair[0].Value, pair[1]
+		vars, err := mappingPairs(mapping, "environment "+environment)
+		if err != nil {
+			return nil, err
+		}
+		refs := map[string]domain.Reference{}
+		for _, v := range vars {
+			if !variableName.MatchString(v[0].Value) {
+				return nil, configError(v[0], "%q is not a valid variable name; use names like API_KEY", v[0].Value)
+			}
+			if v[1].Kind != yaml.ScalarNode || v[1].Tag != "!!str" {
+				return nil, configError(v[1], "%s must map to a secret reference", v[0].Value)
+			}
+			ref, err := domain.ParseReference(v[1].Value)
+			if err != nil {
+				// The value is not echoed: it may be a secret pasted by mistake.
+				return nil, configError(v[1], "%s must map to a secret reference such as openai.personal, not a value", v[0].Value)
+			}
+			refs[v[0].Value] = ref
+		}
+		out[environment] = refs
+	}
+	return out, nil
+}
+
+func parseCommands(node *yaml.Node) (map[string]Command, error) {
+	pairs, err := mappingPairs(node, "commands")
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]Command{}
+	for _, pair := range pairs {
+		name, value := pair[0].Value, pair[1]
+		if !commandName.MatchString(name) {
+			return nil, configError(pair[0], "%q is not a valid command name; use lowercase letters, digits, - and _", name)
+		}
+		if value.Kind == yaml.ScalarNode {
+			run, err := stringValue(value, "commands."+name)
+			if err != nil {
+				return nil, err
+			}
+			out[name] = Command{Run: run}
+			continue
+		}
+		fields, err := mappingPairs(value, "commands."+name)
+		if err != nil {
+			return nil, configError(value, "commands.%s must be a command string or a mapping with run, dir, and env", name)
+		}
+		var command Command
+		for _, field := range fields {
+			text, err := stringValue(field[1], "commands."+name+"."+field[0].Value)
+			if err != nil {
+				return nil, err
+			}
+			switch field[0].Value {
+			case "run":
+				command.Run = text
+			case "dir":
+				command.Dir = text
+			case "env":
+				command.Env = text
+			default:
+				return nil, configError(field[0], "commands.%s has unknown key %q", name, field[0].Value)
+			}
+		}
+		if command.Run == "" {
+			return nil, configError(value, "commands.%s needs a run key", name)
+		}
+		out[name] = command
+	}
+	return out, nil
+}
+
+func parseUp(node *yaml.Node) ([]string, error) {
+	if node.Kind != yaml.SequenceNode {
+		return nil, configError(node, "up must be a list of command names")
+	}
+	var out []string
+	for _, item := range node.Content {
+		name, err := stringValue(item, "up")
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, name)
+	}
+	return out, nil
+}
+
+// Validate checks references between sections, such as default_env naming
+// an environment that exists.
+func (c Config) Validate() []string {
+	var problems []string
+	if c.DefaultEnv != "" && c.Environments[c.DefaultEnv] == nil {
+		problems = append(problems, fmt.Sprintf("default_env %q is not an environment", c.DefaultEnv))
+	}
+	names := make([]string, 0, len(c.Commands))
+	for name := range c.Commands {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if env := c.Commands[name].Env; env != "" && c.Environments[env] == nil {
+			problems = append(problems, fmt.Sprintf("commands.%s uses environment %q, which does not exist", name, env))
+		}
+	}
+	for _, name := range c.Up {
+		if _, ok := c.Commands[name]; !ok {
+			problems = append(problems, fmt.Sprintf("up lists %q, which is not in commands", name))
+		}
+	}
+	return problems
+}
+
+// EnvironmentNames returns the environment names in sorted order.
+func (c Config) EnvironmentNames() []string {
+	names := make([]string, 0, len(c.Environments))
+	for name := range c.Environments {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func WriteAtomic(path string, config Config) error {
@@ -97,14 +300,34 @@ func WriteAtomic(path string, config Config) error {
 			}
 		}
 	}
+	type commandYAML struct {
+		Run string `yaml:"run"`
+		Dir string `yaml:"dir,omitempty"`
+		Env string `yaml:"env,omitempty"`
+	}
+	commands := map[string]any{}
+	for name, command := range config.Commands {
+		if command.Dir == "" && command.Env == "" {
+			commands[name] = command.Run
+		} else {
+			commands[name] = commandYAML{command.Run, command.Dir, command.Env}
+		}
+	}
 	raw, err := yaml.Marshal(struct {
 		Version      int                                    `yaml:"version"`
 		Project      string                                 `yaml:"project"`
+		DefaultEnv   string                                 `yaml:"default_env,omitempty"`
+		Commands     map[string]any                         `yaml:"commands,omitempty"`
+		Up           []string                               `yaml:"up,omitempty"`
 		Environments map[string]map[string]domain.Reference `yaml:"environments"`
-	}{1, config.Project, config.Environments})
+	}{1, config.Project, config.DefaultEnv, commands, config.Up, config.Environments})
 	if err != nil {
 		return ErrInvalidConfig
 	}
+	return writeFile(path, raw)
+}
+
+func writeFile(path string, raw []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
@@ -115,12 +338,15 @@ func WriteAtomic(path string, config Config) error {
 	name := tmp.Name()
 	defer os.Remove(name)
 	if err = tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
 		return err
 	}
 	if _, err = tmp.Write(raw); err != nil {
+		_ = tmp.Close()
 		return err
 	}
 	if err = tmp.Sync(); err != nil {
+		_ = tmp.Close()
 		return err
 	}
 	if err = tmp.Close(); err != nil {
@@ -132,6 +358,69 @@ func WriteAtomic(path string, config Config) error {
 	return syncParent(filepath.Dir(path))
 }
 
+// SetBinding maps variable to ref in one environment. It edits the YAML tree
+// in place, so comments, key order, and the other sections are kept.
+func SetBinding(path, environment, variable string, ref domain.Reference) error {
+	if environment == "" || !variableName.MatchString(variable) {
+		return ErrInvalidConfig
+	}
+	lock, err := lockConfig(path)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ErrInvalidConfig
+	}
+	var doc yaml.Node
+	if yaml.Unmarshal(raw, &doc) != nil || len(doc.Content) != 1 {
+		return &ConfigError{Message: "not valid YAML"}
+	}
+	if _, err := parseDocument(doc.Content[0]); err != nil {
+		return err
+	}
+	environments := childValue(doc.Content[0], "environments")
+	if environments.Style&yaml.FlowStyle != 0 {
+		environments.Style = 0 // turn `environments: {}` into a block mapping
+	}
+	mapping := childValue(environments, environment)
+	if mapping == nil {
+		mapping = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		environments.Content = append(environments.Content, scalar(environment), mapping)
+	}
+	if mapping.Style&yaml.FlowStyle != 0 {
+		mapping.Style = 0
+	}
+	if existing := childValue(mapping, variable); existing != nil {
+		existing.Value, existing.Tag, existing.Style = ref.String(), "!!str", 0
+	} else {
+		mapping.Content = append(mapping.Content, scalar(variable), scalar(ref.String()))
+	}
+	var out bytes.Buffer
+	encoder := yaml.NewEncoder(&out)
+	encoder.SetIndent(2)
+	if encoder.Encode(&doc) != nil || encoder.Close() != nil {
+		return ErrInvalidConfig
+	}
+	return writeFile(path, out.Bytes())
+}
+
+func childValue(mapping *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == key {
+			return mapping.Content[i+1]
+		}
+	}
+	return nil
+}
+
+func scalar(value string) *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
+}
+
+// UpdateAtomic rewrites the whole file from a Config. Prefer SetBinding,
+// which keeps comments.
 func UpdateAtomic(path string, update func(*Config) error) error {
 	lock, err := lockConfig(path)
 	if err != nil {

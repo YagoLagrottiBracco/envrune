@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -39,29 +40,93 @@ func (e *StartError) Error() string        { return fmt.Sprintf("could not start
 func (e *StartError) Unwrap() error        { return e.Err }
 func (e *StartError) Is(target error) bool { return target == ErrChildFailed }
 
+// Spec describes one child process.
+type Spec struct {
+	Command   []string
+	Additions []Pair
+	Inherited []string
+	Dir       string // working directory; empty means the current one
+	Stdin     io.Reader
+	Stdout    io.Writer
+	Stderr    io.Writer
+	// Group starts the child in its own process group so Stop reaches every
+	// process it spawns. The terminal's Ctrl+C then no longer reaches it.
+	Group bool
+}
+
+// Process is a running child.
+type Process struct {
+	cmd   *exec.Cmd
+	group bool
+}
+
+// Start resolves the command through PATH (or relative to Dir when it
+// contains a path separator) and starts it.
+func Start(spec Spec) (*Process, error) {
+	if len(spec.Command) == 0 || spec.Command[0] == "" {
+		return nil, ErrInvalidCommand
+	}
+	name := spec.Command[0]
+	lookup := name
+	if spec.Dir != "" && strings.ContainsAny(name, `/\`) && !filepath.IsAbs(name) {
+		lookup = filepath.Join(spec.Dir, name)
+	}
+	path, err := exec.LookPath(lookup)
+	if err != nil {
+		return nil, &CommandNotFoundError{Name: name}
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	cmd, err := childCommand(path, spec.Command)
+	if err != nil {
+		return nil, &StartError{Name: name, Err: err}
+	}
+	cmd.Dir = spec.Dir
+	cmd.Env = extendEnvironment(spec.Inherited, spec.Additions)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = spec.Stdin, spec.Stdout, spec.Stderr
+	if spec.Group {
+		ownGroup(cmd)
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, &StartError{Name: name, Err: err}
+	}
+	return &Process{cmd: cmd, group: spec.Group}, nil
+}
+
+// Wait returns the child's exit code and an error that explains a failure.
+func (p *Process) Wait() (int, error) {
+	err := p.cmd.Wait()
+	if err == nil {
+		return 0, nil
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return exit.ExitCode(), &ExitError{Code: exit.ExitCode()}
+	}
+	return 1, &StartError{Name: p.cmd.Args[0], Err: err}
+}
+
+// Stop asks the child, and its process group when it has one, to exit.
+func (p *Process) Stop() {
+	if p.cmd.Process != nil {
+		stopTree(p.cmd.Process, p.group)
+	}
+}
+
+// Run starts the command attached to the terminal and waits for it.
 func Run(command []string, additions []Pair, inherited []string, stdout, stderr io.Writer) (int, error) {
-	if len(command) == 0 || command[0] == "" {
-		return 2, ErrInvalidCommand
+	p, err := Start(Spec{Command: command, Additions: additions, Inherited: inherited, Stdin: os.Stdin, Stdout: stdout, Stderr: stderr})
+	var missing *CommandNotFoundError
+	switch {
+	case errors.As(err, &missing):
+		return 127, err
+	case errors.Is(err, ErrInvalidCommand):
+		return 2, err
+	case err != nil:
+		return 1, err
 	}
-	path, err := exec.LookPath(command[0])
-	if err != nil {
-		return 127, &CommandNotFoundError{Name: command[0]}
-	}
-	cmd, err := childCommand(path, command)
-	if err != nil {
-		return 1, &StartError{Name: command[0], Err: err}
-	}
-	cmd.Env = extendEnvironment(inherited, additions)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, stdout, stderr
-	configureChild(cmd)
-	if err := cmd.Run(); err != nil {
-		var exit *exec.ExitError
-		if errors.As(err, &exit) {
-			return exit.ExitCode(), &ExitError{Code: exit.ExitCode()}
-		}
-		return 1, &StartError{Name: command[0], Err: err}
-	}
-	return 0, nil
+	return p.Wait()
 }
 
 func extendEnvironment(inherited []string, additions []Pair) []string {

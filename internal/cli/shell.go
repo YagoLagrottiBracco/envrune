@@ -2,23 +2,17 @@ package cli
 
 import (
 	"bufio"
-	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/YagoLagrottiBracco/envrune/internal/app"
-	"github.com/YagoLagrottiBracco/envrune/internal/dotenv"
-	"github.com/YagoLagrottiBracco/envrune/internal/exporter"
-	"github.com/YagoLagrottiBracco/envrune/internal/paths"
 	"github.com/YagoLagrottiBracco/envrune/internal/project"
-	"github.com/YagoLagrottiBracco/envrune/internal/runner"
 )
 
 // Shell is a foreground interactive Envrune session. It never invokes a
@@ -28,76 +22,113 @@ type Shell struct {
 	Stdout      io.Writer
 	Stderr      io.Writer
 	ReadSecret  func(string) ([]byte, error)
+	ReadChoice  func(string) (string, error)
 	OpenSession func([]byte) (*app.Session, error)
+	// Unlock, when set, replaces the master password prompt, so an agent or
+	// the system keychain can open the session.
+	Unlock      func() (*app.Session, error)
 	FindProject func(string) (string, error)
 	Environment func() []string
 	StartUI     func(*app.Session, []string, io.Writer, io.Writer) int
 	Interrupt   <-chan struct{}
+	// Busy is set while a command runs, so Ctrl+C stops the command instead
+	// of locking the session.
+	Busy *atomic.Bool
 }
 
 func executeShell(stdout, stderr io.Writer) int {
 	prompt := SecretPrompt{Output: stderr}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	status := NewPresenter(stdout, stderr, os.Getenv)
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	interrupt := make(chan struct{})
+	busy := &atomic.Bool{}
+	go func() {
+		for sig := range signals {
+			if sig == syscall.SIGTERM || !busy.Load() {
+				close(interrupt)
+				return
+			}
+		}
+	}()
 	return Shell{
 		Input:      os.Stdin,
 		Stdout:     stdout,
 		Stderr:     stderr,
 		ReadSecret: prompt.Read,
-		OpenSession: func(password []byte) (*app.Session, error) {
-			path, err := paths.VaultPath(os.Getenv, os.UserHomeDir)
-			if err != nil {
-				return nil, err
-			}
-			return app.OpenSession(path, password)
+		ReadChoice: ChoicePrompt{Output: stderr}.Read,
+		Unlock: func() (*app.Session, error) {
+			return unlocker{getenv: os.Getenv, prompt: prompt.Read, status: status}.session()
 		},
 		FindProject: project.Find,
 		Environment: os.Environ,
 		StartUI:     executeSessionUI,
-		Interrupt:   ctx.Done(),
+		Interrupt:   interrupt,
+		Busy:        busy,
 	}.Run()
+}
+
+func (s Shell) open() (*app.Session, error) {
+	if s.Unlock != nil {
+		return s.Unlock()
+	}
+	password, err := s.ReadSecret("Master password")
+	if err != nil {
+		return nil, err
+	}
+	defer wipe(password)
+	return s.OpenSession(password)
+}
+
+func (s Shell) interrupted() bool {
+	if s.Interrupt == nil {
+		return false
+	}
+	select {
+	case <-s.Interrupt:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s Shell) Run() int {
 	status := NewPresenter(s.Stdout, s.Stderr, os.Getenv)
-	if s.Input == nil || s.Stdout == nil || s.Stderr == nil || s.ReadSecret == nil || s.OpenSession == nil {
+	if s.Input == nil || s.Stdout == nil || s.Stderr == nil || s.ReadSecret == nil || (s.OpenSession == nil && s.Unlock == nil) {
 		status.Error("Interactive shell is unavailable.")
 		return 1
 	}
-	password, err := s.ReadSecret("Master password")
-	if err != nil {
-		status.Error(describe(err, "Secure interactive input is required."))
-		return 1
-	}
-	session, err := s.OpenSession(password)
-	wipe(password)
+	session, err := s.open()
 	if err != nil {
 		status.Error(describe(err, "Unable to unlock the vault."))
 		return 1
 	}
 	defer session.Close()
 	status.Success("Vault unlocked for this session.")
+	workspace := Workspace{
+		Session:     session,
+		Stdout:      s.Stdout,
+		Stderr:      s.Stderr,
+		ReadSecret:  s.ReadSecret,
+		ReadChoice:  s.ReadChoice,
+		FindProject: s.FindProject,
+		Environment: s.Environment,
+		StartUI:     s.StartUI,
+	}
 
 	reader := bufio.NewReader(s.Input)
 	for {
 		_, _ = fmt.Fprint(s.Stdout, "envrune [unlocked] > ")
-		if s.Interrupt != nil {
-			select {
-			case <-s.Interrupt:
-				status.Success("Session locked.")
-				return 130
-			default:
-			}
+		if s.interrupted() {
+			status.Success("Session locked.")
+			return 130
 		}
 		line, readErr := reader.ReadString('\n')
 		if readErr != nil && !errors.Is(readErr, io.EOF) {
-			if s.Interrupt != nil {
-				select {
-				case <-s.Interrupt:
-					status.Success("Session locked.")
-					return 130
-				default:
-				}
+			if s.interrupted() {
+				status.Success("Session locked.")
+				return 130
 			}
 			status.Error("Session input is unavailable.")
 			return 1
@@ -106,7 +137,7 @@ func (s Shell) Run() int {
 		if parseErr != nil {
 			status.Error("Invalid command syntax.")
 		} else if len(args) > 0 {
-			code, closeSession := s.execute(session, status, args)
+			code, closeSession := s.execute(workspace, status, args)
 			if closeSession {
 				status.Success("Session locked.")
 				return code
@@ -119,203 +150,24 @@ func (s Shell) Run() int {
 	}
 }
 
-func (s Shell) execute(session *app.Session, status Presenter, args []string) (int, bool) {
-	command := args[0]
-	if command == "exit" || command == "lock" {
+func (s Shell) execute(workspace Workspace, status Presenter, args []string) (int, bool) {
+	switch args[0] {
+	case "exit", "lock":
 		if len(args) != 1 {
 			status.Error("Invalid command arguments.")
 			return 2, false
 		}
 		return 0, true
-	}
-	if command == "help" || command == "--help" || command == "-h" {
-		fmt.Fprintln(s.Stdout, "Commands: set, list, link, usage, generate, import, run, export, ui, lock, exit")
+	case "help", "--help", "-h":
+		fmt.Fprint(s.Stdout, helpText)
+		fmt.Fprintln(s.Stdout, "\nIn this shell, `lock` or `exit` ends the session.")
 		return 0, false
 	}
-	switch command {
-	case "set":
-		if len(args) != 2 {
-			status.Error("Usage: set <secret-reference>")
-			return 2, false
-		}
-		value, err := readConfirmedValue(s.ReadSecret, "Secret value")
-		if err == nil {
-			err = session.Set(args[1], value)
-		}
-		wipe(value)
-		if err != nil {
-			status.Error(describe(err, "Secret could not be stored."))
-			return 1, false
-		}
-		status.Success(fmt.Sprintf("Secret stored: %s", args[1]))
-	case "list":
-		if len(args) != 1 {
-			status.Error("Usage: list")
-			return 2, false
-		}
-		refs, err := session.List()
-		if err != nil {
-			status.Error(describe(err, "Secret references are unavailable."))
-			return 1, false
-		}
-		for _, ref := range refs {
-			fmt.Fprintln(s.Stdout, ref)
-		}
-		status.Success("Secret references listed.")
-	case "link":
-		if len(args) != 5 || args[3] != "--env" {
-			status.Error("Usage: link <VAR> <reference> --env <environment>")
-			return 2, false
-		}
-		projectPath, err := s.findProject()
-		if err == nil {
-			err = session.Link(projectPath, args[4], args[1], args[2])
-		}
-		if err != nil {
-			status.Error(describe(err, "The project link could not be created."))
-			return 1, false
-		}
-		status.Success(fmt.Sprintf("Linked %s for environment %s.", args[1], args[4]))
-	case "usage":
-		if len(args) != 2 {
-			status.Error("Usage: usage <reference>")
-			return 2, false
-		}
-		usages, err := session.Usage(args[1])
-		if err != nil {
-			status.Error(describe(err, "Secret usage is unavailable."))
-			return 1, false
-		}
-		for _, usage := range usages {
-			fmt.Fprintf(s.Stdout, "%s %s %s\n", usage.ProjectPath, usage.Environment, usage.Variable)
-		}
-		status.Success("Secret usage listed.")
-	case "generate":
-		if len(args) != 4 || args[2] != "--length" {
-			status.Error("Usage: generate <reference> --length <n>")
-			return 2, false
-		}
-		length, err := strconv.Atoi(args[3])
-		if err == nil {
-			err = session.Generate(args[1], length)
-		}
-		if err != nil {
-			status.Error(describe(err, "Secret generation failed."))
-			return 1, false
-		}
-		status.Success(fmt.Sprintf("Generated and stored a %d-character secret.", length))
-	case "import":
-		if len(args) != 2 {
-			status.Error("Usage: import <file.env>")
-			return 2, false
-		}
-		raw, err := os.ReadFile(args[1])
-		if err == nil {
-			entries, parseErr := dotenv.Parse(raw)
-			if parseErr != nil {
-				err = parseErr
-			} else {
-				for _, entry := range entries {
-					fmt.Fprintln(s.Stdout, entry.Name)
-				}
-				if !s.confirm() {
-					status.Error("Confirmation is required.")
-					return 1, false
-				}
-				_, err = session.Import(entries)
-			}
-		}
-		if err != nil {
-			status.Error(describe(err, "Secrets could not be imported."))
-			return 1, false
-		}
-		status.Success("Secrets imported.")
-	case "run", "export":
-		return s.executeRuntimeCommand(session, status, args)
-	case "ui":
-		start := s.StartUI
-		if start == nil {
-			start = executeSessionUI
-		}
-		return start(session, args[1:], s.Stdout, s.Stderr), false
-	default:
-		status.Error("Unknown command.")
-		return 2, false
+	if s.Busy != nil {
+		s.Busy.Store(true)
+		defer s.Busy.Store(false)
 	}
-	return 0, false
-}
-
-func (s Shell) executeRuntimeCommand(session *app.Session, status Presenter, args []string) (int, bool) {
-	if len(args) < 3 || args[1] != "--env" {
-		status.Error("Usage: run|export --env <environment> ...")
-		return 2, false
-	}
-	projectPath, err := s.findProject()
-	if err != nil {
-		status.Error("No Envrune project configuration was found.")
-		return 1, false
-	}
-	pairs, err := session.ResolveEnvironment(projectPath, args[2])
-	defer wipePairs(pairs)
-	if err != nil {
-		status.Error(describe(err, "Configured secrets are unavailable."))
-		return 1, false
-	}
-	if args[0] == "run" {
-		if len(args) < 5 || args[3] != "--" {
-			status.Error("Usage: run --env <environment> -- <command>")
-			return 2, false
-		}
-		status.Info(fmt.Sprintf("Starting command with %d injected variables.", len(pairs)))
-		environment := s.Environment
-		if environment == nil {
-			environment = os.Environ
-		}
-		code, runErr := runner.Run(args[4:], pairs, environment(), s.Stdout, s.Stderr)
-		if runErr != nil {
-			status.Error(describe(runErr, "The command could not be run."))
-		}
-		return code, false
-	}
-	output, force, err := exportArguments(args[3:], args[2])
-	if err != nil {
-		status.Error("Export arguments are invalid.")
-		return 2, false
-	}
-	for _, pair := range pairs {
-		fmt.Fprintln(s.Stdout, pair.Name)
-	}
-	status.Warn("Export writes plaintext secrets. Delete the file after use.")
-	if !s.confirm() {
-		status.Error("Confirmation is required.")
-		return 1, false
-	}
-	if insideGit(filepath.Dir(output)) && !s.confirm() {
-		status.Error("Additional confirmation is required for a Git directory.")
-		return 1, false
-	}
-	if err := exporter.Write(output, pairs, force); err != nil {
-		status.Error(describe(err, "Plaintext export could not be created."))
-		return 1, false
-	}
-	status.Success("Plaintext export created.")
-	return 0, false
-}
-
-func (s Shell) findProject() (string, error) {
-	if s.FindProject == nil {
-		return project.Find(".")
-	}
-	return s.FindProject(".")
-}
-
-func (s Shell) confirm() bool {
-	value, err := s.ReadSecret("Type YES to confirm")
-	if err != nil {
-		return false
-	}
-	defer wipe(value)
-	return string(value) == "YES"
+	return workspace.Execute(args), false
 }
 
 func parseShellLine(line string) ([]string, error) {

@@ -112,7 +112,7 @@ func initializedVault(t *testing.T) (string, []byte) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "vault.ev1")
 	password := []byte("correct horse battery staple")
-	if err := (VaultService{}).Init(path, password, append([]byte(nil), password...)); err != nil {
+	if _, err := (VaultService{}).Init(path, password, append([]byte(nil), password...)); err != nil {
 		t.Fatal(err)
 	}
 	return path, password

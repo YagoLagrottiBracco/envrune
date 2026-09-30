@@ -13,7 +13,6 @@ import (
 	"syscall"
 
 	"github.com/YagoLagrottiBracco/envrune/internal/app"
-	"github.com/YagoLagrottiBracco/envrune/internal/paths"
 	"github.com/YagoLagrottiBracco/envrune/internal/ui"
 )
 
@@ -40,34 +39,6 @@ func uiArguments(args []string) (int, bool, error) {
 		}
 	}
 	return port, browser, nil
-}
-
-func executeUI(args []string, stdout, stderr io.Writer) int {
-	port, browser, err := uiArguments(args)
-	if err != nil {
-		fmt.Fprintln(stderr, "usage: envrune ui [--port <port>] [--no-browser]")
-		return 2
-	}
-	status := NewPresenter(stdout, stderr, os.Getenv)
-	password, err := (SecretPrompt{Output: stderr}).Read("Master password")
-	if err != nil {
-		status.Error(describe(err, "Secure interactive input is required."))
-		return 1
-	}
-	defer wipe(password)
-	path, err := paths.VaultPath(os.Getenv, os.UserHomeDir)
-	if err != nil {
-		status.Error("Vault path is unavailable.")
-		return 1
-	}
-	dashboard, err := app.OpenDashboard(path, password)
-	wipe(password)
-	if err != nil {
-		status.Error(describe(err, "Command failed. Check your password and vault."))
-		return 1
-	}
-	defer dashboard.Close()
-	return serveUI(port, browser, dashboard, stdout, stderr)
 }
 
 func executeSessionUI(session *app.Session, args []string, stdout, stderr io.Writer) int {
@@ -108,10 +79,17 @@ func serveUI(port int, browser bool, source ui.MetadataSource, stdout, stderr io
 }
 
 func openBrowser(address string) {
-	if runtime.GOOS != "linux" {
+	var command *exec.Cmd
+	switch runtime.GOOS {
+	case "linux":
+		command = exec.Command("xdg-open", address)
+	case "darwin":
+		command = exec.Command("open", address)
+	case "windows":
+		command = exec.Command("rundll32", "url.dll,FileProtocolHandler", address)
+	default:
 		return
 	}
-	command := exec.Command("xdg-open", address)
 	command.Stdout, command.Stderr = io.Discard, io.Discard
 	if command.Start() == nil {
 		go func() { _ = command.Wait() }()

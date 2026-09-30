@@ -11,8 +11,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func configureChild(_ *exec.Cmd) {}
-
 // childCommand re-executes Envrune so the child can drop dumpability before
 // exec. The resolved path travels separately from the original argv.
 func childCommand(path string, command []string) (*exec.Cmd, error) {

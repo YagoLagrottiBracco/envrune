@@ -56,3 +56,17 @@ func TestRunResolvesBareCommandFromPath(t *testing.T) {
 		t.Fatalf("Run() = %d, %v, %q", code, err, stdout.String())
 	}
 }
+
+func TestStopEndsAGroupedChild(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows host command fixture")
+	}
+	p, err := Start(Spec{Command: []string{"cmd", "/c", "ping -n 30 127.0.0.1 >nul"}, Inherited: os.Environ(), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}, Group: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Stop()
+	if code, err := p.Wait(); err == nil || code == 0 {
+		t.Fatalf("Wait() = %d, %v", code, err)
+	}
+}

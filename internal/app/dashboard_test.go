@@ -17,7 +17,7 @@ func TestDashboardExposesOnlyMetadataAndRefreshesProjectMappings(t *testing.T) {
 	password := []byte("dashboard-test-password")
 	secret := []byte("DO-NOT-LEAK-dashboard-plaintext-123")
 	service := VaultService{}
-	if err := service.Init(vaultPath, password, password); err != nil {
+	if _, err := service.Init(vaultPath, password, password); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.Set(vaultPath, password, "openai.personal", secret); err != nil {

@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/YagoLagrottiBracco/envrune/internal/app"
-	"github.com/YagoLagrottiBracco/envrune/internal/paths"
 	"golang.org/x/term"
 )
 
@@ -23,7 +22,7 @@ type Onboarding struct {
 }
 
 func executeOnboarding(stdout, stderr io.Writer) int {
-	path, err := paths.VaultPath(os.Getenv, os.UserHomeDir)
+	path, err := vaultPath(os.Getenv)
 	if err != nil {
 		NewPresenter(stdout, stderr, os.Getenv).Error("Vault path is unavailable.")
 		return 1
@@ -82,11 +81,14 @@ func (o Onboarding) Run() int {
 		return 1
 	}
 	defer wipe(confirmation)
-	if err := (app.VaultService{}).Init(o.VaultPath, password, confirmation); err != nil {
+	recovery, err := (app.VaultService{}).Init(o.VaultPath, password, confirmation)
+	if err != nil {
 		status.Error(describe(err, "Vault initialization failed. Check the passwords and try again."))
 		return 1
 	}
+	defer wipe(recovery)
 	status.Success("Vault initialized. Run `envrune shell` to begin.")
+	showRecoveryKey(o.Stdout, status, recovery)
 	return 0
 }
 

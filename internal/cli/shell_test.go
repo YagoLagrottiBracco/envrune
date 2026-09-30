@@ -16,7 +16,7 @@ import (
 func TestShellReadsMasterPasswordOnceAndClosesSession(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "vault.ev1")
 	password := []byte("shell-master-password")
-	if err := (app.VaultService{}).Init(path, password, append([]byte(nil), password...)); err != nil {
+	if _, err := (app.VaultService{}).Init(path, password, append([]byte(nil), password...)); err != nil {
 		t.Fatal(err)
 	}
 	reads := 0
@@ -54,7 +54,7 @@ func TestShellStoresAndListsWithoutLeakingSecret(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "vault.ev1")
 	password := []byte("shell-master-password")
 	const sentinel = "shell-secret-sentinel"
-	if err := (app.VaultService{}).Init(path, password, append([]byte(nil), password...)); err != nil {
+	if _, err := (app.VaultService{}).Init(path, password, append([]byte(nil), password...)); err != nil {
 		t.Fatal(err)
 	}
 	prompts := [][]byte{append([]byte(nil), password...), []byte(sentinel), []byte(sentinel)}
@@ -85,7 +85,7 @@ func TestShellStoresAndListsWithoutLeakingSecret(t *testing.T) {
 func TestShellClosesSessionOnEOF(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "vault.ev1")
 	password := []byte("shell-master-password")
-	if err := (app.VaultService{}).Init(path, password, append([]byte(nil), password...)); err != nil {
+	if _, err := (app.VaultService{}).Init(path, password, append([]byte(nil), password...)); err != nil {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
@@ -113,7 +113,7 @@ func TestShellClosesSessionOnEOF(t *testing.T) {
 func TestShellUIUsesExistingSessionWithoutSecondPassword(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "vault.ev1")
 	password := []byte("shell-master-password")
-	if err := (app.VaultService{}).Init(path, password, append([]byte(nil), password...)); err != nil {
+	if _, err := (app.VaultService{}).Init(path, password, append([]byte(nil), password...)); err != nil {
 		t.Fatal(err)
 	}
 	reads, starts := 0, 0
@@ -147,7 +147,7 @@ func TestShellUIUsesExistingSessionWithoutSecondPassword(t *testing.T) {
 func TestShellClosesSessionOnInterrupt(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "vault.ev1")
 	password := []byte("shell-master-password")
-	if err := (app.VaultService{}).Init(path, password, append([]byte(nil), password...)); err != nil {
+	if _, err := (app.VaultService{}).Init(path, password, append([]byte(nil), password...)); err != nil {
 		t.Fatal(err)
 	}
 	interrupt := make(chan struct{})
@@ -190,7 +190,7 @@ func TestParseShellLineRejectsUnclosedQuote(t *testing.T) {
 func TestShellsShareVaultAndExplainFailures(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "vault.ev1")
 	password := []byte("shell-master-password")
-	if err := (app.VaultService{}).Init(path, password, append([]byte(nil), password...)); err != nil {
+	if _, err := (app.VaultService{}).Init(path, password, append([]byte(nil), password...)); err != nil {
 		t.Fatal(err)
 	}
 	other, err := app.OpenSession(path, password)
@@ -236,7 +236,7 @@ func TestShellsShareVaultAndExplainFailures(t *testing.T) {
 func TestShellRunReportsMissingCommand(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "vault.ev1")
 	password := []byte("shell-master-password")
-	if err := (app.VaultService{}).Init(path, password, append([]byte(nil), password...)); err != nil {
+	if _, err := (app.VaultService{}).Init(path, password, append([]byte(nil), password...)); err != nil {
 		t.Fatal(err)
 	}
 	projectPath := filepath.Join(t.TempDir(), "envrune.yml")

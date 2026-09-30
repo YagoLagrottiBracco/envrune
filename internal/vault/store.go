@@ -2,83 +2,186 @@ package vault
 
 import (
 	"bytes"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
-	"time"
 
 	crypto "github.com/YagoLagrottiBracco/envrune/internal/crypto"
-	"github.com/YagoLagrottiBracco/envrune/internal/domain"
 )
-
-type payload struct {
-	Version  uint8             `json:"version"`
-	Secrets  map[string][]byte `json:"secrets"`
-	Projects []string          `json:"projects"`
-}
 
 const maxVaultBytes = 16 << 20
 
 // Opened is an unlocked vault held in memory. It never keeps the file lock:
 // reads and writes lock the file only while they touch it, and every write
 // first merges in changes other processes committed since this one last read.
-// The header nonce changes on every write, so it doubles as the version.
+// The payload nonce changes on every write, so it doubles as the version.
 type Opened struct {
 	path   string
-	header Header
-	key    []byte
+	header headerV2
+	dek    []byte
 	data   payload
 }
 
-func Create(path string, password []byte, params crypto.KDFParams) error {
+// Create writes a new vault and returns its recovery key, which is shown to
+// the user once and never stored.
+func Create(path string, password []byte, params crypto.KDFParams) ([]byte, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
+		return nil, err
 	}
 	lock, err := acquireLock(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer lock.Close()
 	if _, err := os.Stat(path); err == nil {
-		return ErrAlreadyExists
+		return nil, ErrAlreadyExists
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
+		return nil, err
 	}
-	salt := make([]byte, 32)
-	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
-		return err
-	}
-	key, err := crypto.DeriveKey(password, salt, params)
+	salt, err := randomBytes(32)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	v := &Opened{path: path, header: Header{Params: params, Salt: salt}, key: key, data: payload{Version: 1, Secrets: map[string][]byte{}, Projects: []string{}}}
+	dek, err := randomBytes(32)
+	if err != nil {
+		return nil, err
+	}
+	recovery, err := randomBytes(32)
+	if err != nil {
+		return nil, err
+	}
+	kek, err := crypto.DeriveKey(password, salt, params)
+	if err != nil {
+		return nil, err
+	}
+	defer wipe(kek)
+	h := headerV2{Params: params, Salt: salt}
+	if err := h.wrapPassword(kek, dek); err != nil {
+		return nil, err
+	}
+	if err := h.wrapRecovery(recovery, dek); err != nil {
+		return nil, err
+	}
+	v := &Opened{path: path, header: h, dek: dek, data: newPayload()}
 	defer v.Close()
-	return v.write()
+	if err := v.write(); err != nil {
+		wipe(recovery)
+		return nil, err
+	}
+	return recovery, nil
 }
 
+// Open unlocks the vault with the master password. A version 1 vault is
+// upgraded to version 2 on the way.
 func Open(path string, password []byte) (*Opened, error) {
 	raw, err := readLocked(path)
 	if err != nil {
 		return nil, err
 	}
-	h, err := ParseHeader(raw[:headerSize])
-	if err != nil {
-		return nil, ErrCannotUnlock
+	if !isV2(raw) {
+		return openV1(path, password)
 	}
-	key, err := crypto.DeriveKey(password, h.Salt, h.Params)
+	h, err := parseHeaderV2(raw)
 	if err != nil {
-		return nil, ErrCannotUnlock
-	}
-	data, err := decode(key, h, raw)
-	if err != nil {
-		wipe(key)
 		return nil, err
 	}
-	return &Opened{path: path, header: h, key: key, data: data}, nil
+	kek, err := crypto.DeriveKey(password, h.Salt, h.Params)
+	if err != nil {
+		return nil, ErrCannotUnlock
+	}
+	defer wipe(kek)
+	dek, err := h.unwrapPassword(kek)
+	if err != nil {
+		return nil, err
+	}
+	return openWithDEK(path, h, dek, raw)
+}
+
+// OpenWithKey unlocks the vault with a data key previously taken from an
+// opened vault, as the agent and the system keychain do.
+func OpenWithKey(path string, key []byte) (*Opened, error) {
+	raw, err := readLocked(path)
+	if err != nil {
+		return nil, err
+	}
+	h, err := parseHeaderV2(raw)
+	if err != nil {
+		return nil, err
+	}
+	return openWithDEK(path, h, append([]byte(nil), key...), raw)
+}
+
+// OpenWithRecovery unlocks the vault with its recovery key.
+func OpenWithRecovery(path string, recovery []byte) (*Opened, error) {
+	raw, err := readLocked(path)
+	if err != nil {
+		return nil, err
+	}
+	h, err := parseHeaderV2(raw)
+	if err != nil {
+		return nil, err
+	}
+	dek, err := h.unwrapRecovery(recovery)
+	if err != nil {
+		return nil, err
+	}
+	return openWithDEK(path, h, dek, raw)
+}
+
+func openWithDEK(path string, h headerV2, dek, raw []byte) (*Opened, error) {
+	data, err := decode(dek, h.Nonce, raw[header2Size:], raw[:header2Size])
+	if err != nil {
+		wipe(dek)
+		return nil, err
+	}
+	return &Opened{path: path, header: h, dek: dek, data: data}, nil
+}
+
+// openV1 decrypts a version 1 vault and rewrites it as version 2 under a new
+// data key wrapped by the same password-derived key.
+func openV1(path string, password []byte) (*Opened, error) {
+	lock, err := acquireLock(path)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Close()
+	raw, err := readRaw(path)
+	if err != nil {
+		return nil, err
+	}
+	if isV2(raw) {
+		lock.Close()
+		return Open(path, password)
+	}
+	old, err := ParseHeader(raw[:headerSize])
+	if err != nil {
+		return nil, ErrCannotUnlock
+	}
+	kek, err := crypto.DeriveKey(password, old.Salt, old.Params)
+	if err != nil {
+		return nil, ErrCannotUnlock
+	}
+	defer wipe(kek)
+	data, err := decode(kek, old.Nonce, raw[headerSize:], raw[:headerSize])
+	if err != nil {
+		return nil, err
+	}
+	dek, err := randomBytes(32)
+	if err != nil {
+		return nil, err
+	}
+	h := headerV2{Params: old.Params, Salt: old.Salt}
+	if err := h.wrapPassword(kek, dek); err != nil {
+		return nil, err
+	}
+	v := &Opened{path: path, header: h, dek: dek, data: data}
+	if err := v.write(); err != nil {
+		v.Close()
+		return nil, err
+	}
+	return v, nil
 }
 
 // Refresh loads changes that other processes committed since the last read.
@@ -116,75 +219,77 @@ func (v *Opened) Update(change func(*Opened) error) error {
 	return nil
 }
 
-func (v *Opened) RegisterProject(path string) {
-	for _, known := range v.data.Projects {
-		if known == path {
-			return
-		}
+// Key returns a copy of the data key for the agent or the system keychain.
+func (v *Opened) Key() []byte { return append([]byte(nil), v.dek...) }
+
+// Path returns the vault file location.
+func (v *Opened) Path() string { return v.path }
+
+// ChangePassword re-wraps the data key for a new master password. Call it
+// inside Update. Existing agent and keychain entries stay valid.
+func (v *Opened) ChangePassword(password []byte) error {
+	salt, err := randomBytes(32)
+	if err != nil {
+		return err
 	}
-	v.data.Projects = append(v.data.Projects, path)
-}
-
-func (v *Opened) Projects() []string { return append([]string(nil), v.data.Projects...) }
-
-func (v *Opened) Put(ref domain.Reference, value []byte, _ time.Time) error {
-	v.data.Secrets[ref.String()] = append([]byte(nil), value...)
+	kek, err := crypto.DeriveKey(password, salt, v.header.Params)
+	if err != nil {
+		return err
+	}
+	defer wipe(kek)
+	h := v.header
+	h.Salt = salt
+	if err := h.wrapPassword(kek, v.dek); err != nil {
+		return err
+	}
+	v.header = h
 	return nil
 }
 
-func (v *Opened) Value(ref domain.Reference) ([]byte, bool) {
-	value, ok := v.data.Secrets[ref.String()]
-	if !ok {
-		return nil, false
+// ResetRecovery wraps the data key under a new recovery key and returns it.
+// Any earlier recovery key stops working. Call it inside Update.
+func (v *Opened) ResetRecovery() ([]byte, error) {
+	recovery, err := randomBytes(32)
+	if err != nil {
+		return nil, err
 	}
-	return append([]byte(nil), value...), true
+	h := v.header
+	if err := h.wrapRecovery(recovery, v.dek); err != nil {
+		return nil, err
+	}
+	v.header = h
+	return recovery, nil
 }
 
-func (v *Opened) References() []domain.Reference {
-	refs := make([]domain.Reference, 0, len(v.data.Secrets))
-	for raw := range v.data.Secrets {
-		if ref, err := domain.ParseReference(raw); err == nil {
-			refs = append(refs, ref)
-		}
-	}
-	return refs
-}
+func (v *Opened) HasRecovery() bool { return v.header.HasRecovery }
 
 func (v *Opened) Close() {
 	if v == nil {
 		return
 	}
-	wipe(v.key)
-	v.key = nil
-	v.wipeData()
-	v.data.Secrets = nil
-	v.data.Projects = nil
-}
-
-func (v *Opened) wipeData() {
-	for _, value := range v.data.Secrets {
-		wipe(value)
-	}
-	clear(v.data.Secrets)
+	wipe(v.dek)
+	v.dek = nil
+	v.data.wipe()
+	v.data = payload{}
 }
 
 // reload replaces the in-memory state when raw holds a newer version.
 func (v *Opened) reload(raw []byte) error {
-	h, err := ParseHeader(raw[:headerSize])
+	if !isV2(raw) {
+		return ErrReplaced
+	}
+	h, err := parseHeaderV2(raw)
 	if err != nil {
-		return ErrCannotUnlock
+		return err
 	}
 	if bytes.Equal(h.Nonce, v.header.Nonce) {
 		return nil
 	}
-	if !bytes.Equal(h.Salt, v.header.Salt) || h.Params != v.header.Params {
+	data, err := decode(v.dek, h.Nonce, raw[header2Size:], raw[:header2Size])
+	if err != nil {
 		return ErrReplaced
 	}
-	data, err := decode(v.key, h, raw)
-	if err != nil {
-		return err
-	}
-	v.wipeData()
+	v.data.wipe()
 	v.header, v.data = h, data
 	return nil
 }
@@ -196,20 +301,29 @@ func (v *Opened) write() error {
 		return err
 	}
 	defer wipe(plain)
-	nonce := make([]byte, 24)
-	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
+	nonce, err := randomBytes(24)
+	if err != nil {
 		return err
 	}
-	header := Header{Params: v.header.Params, Salt: v.header.Salt, Nonce: nonce}
-	headerRaw := header.MarshalBinary()
-	cipher, err := crypto.Seal(v.key, nonce, plain, headerRaw)
+	header := v.header
+	header.Nonce = nonce
+	headerRaw := header.marshal()
+	cipher, err := crypto.Seal(v.dek, nonce, plain, headerRaw)
 	if err != nil {
 		return err
 	}
 	if len(headerRaw)+len(cipher) > maxVaultBytes {
-		return ErrCannotUnlock
+		return ErrTooLarge
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(v.path), ".vault-")
+	if err := writeFileAtomic(v.path, append(headerRaw, cipher...)); err != nil {
+		return err
+	}
+	v.header = header
+	return nil
+}
+
+func writeFileAtomic(path string, content []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".vault-")
 	if err != nil {
 		return err
 	}
@@ -219,7 +333,7 @@ func (v *Opened) write() error {
 		_ = tmp.Close()
 		return err
 	}
-	if _, err = tmp.Write(append(headerRaw, cipher...)); err != nil {
+	if _, err = tmp.Write(content); err != nil {
 		_ = tmp.Close()
 		return err
 	}
@@ -230,11 +344,10 @@ func (v *Opened) write() error {
 	if err = tmp.Close(); err != nil {
 		return err
 	}
-	if err = os.Rename(name, v.path); err != nil {
+	if err = os.Rename(name, path); err != nil {
 		return err
 	}
-	v.header = header
-	return syncParent(filepath.Dir(v.path))
+	return syncParent(filepath.Dir(path))
 }
 
 func readLocked(path string) ([]byte, error) {
@@ -265,8 +378,8 @@ func readRaw(path string) ([]byte, error) {
 	return raw, nil
 }
 
-func decode(key []byte, h Header, raw []byte) (payload, error) {
-	plain, err := crypto.Open(key, h.Nonce, raw[headerSize:], raw[:headerSize])
+func decode(key, nonce, ciphertext, aad []byte) (payload, error) {
+	plain, err := crypto.Open(key, nonce, ciphertext, aad)
 	if err != nil {
 		return payload{}, ErrCannotUnlock
 	}
@@ -277,6 +390,9 @@ func decode(key []byte, h Header, raw []byte) (payload, error) {
 	}
 	if data.Projects == nil {
 		data.Projects = []string{}
+	}
+	if data.Meta == nil {
+		data.Meta = map[string]*SecretMeta{}
 	}
 	return data, nil
 }

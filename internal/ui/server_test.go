@@ -215,7 +215,7 @@ func TestHTTPWithRealVaultNeverReturnsSecretOrMasterPassword(t *testing.T) {
 	password := []byte("MASTER-PASSWORD-never-in-HTTP")
 	secret := []byte("SECRET-SENTINEL-never-in-HTTP")
 	service := app.VaultService{}
-	if err := service.Init(path, password, password); err != nil {
+	if _, err := service.Init(path, password, password); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.Set(path, password, "demo.key", secret); err != nil {

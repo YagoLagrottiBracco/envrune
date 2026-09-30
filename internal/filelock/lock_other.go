@@ -1,6 +1,6 @@
 //go:build !unix && !windows
 
-package vault
+package filelock
 
 import "os"
 

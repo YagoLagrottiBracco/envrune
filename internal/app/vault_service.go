@@ -27,9 +27,10 @@ type Usage struct {
 	Variable    string
 }
 
-func (VaultService) Init(path string, password, confirmation []byte) error {
+// Init creates the vault and returns its recovery key, to be shown once.
+func (VaultService) Init(path string, password, confirmation []byte) ([]byte, error) {
 	if string(password) != string(confirmation) {
-		return ErrPasswordConfirmation
+		return nil, ErrPasswordConfirmation
 	}
 	return vault.Create(path, password, crypto.DefaultKDFParams(runtime.NumCPU()))
 }
@@ -72,12 +73,12 @@ func (VaultService) Import(path string, entries []dotenv.Entry, password []byte)
 }
 
 func (VaultService) ResolveEnvironment(vaultPath, projectPath, environment string, password []byte) ([]runner.Pair, error) {
-	var pairs []runner.Pair
-	err := withVault(vaultPath, password, func(v *vault.Opened) (err error) {
-		pairs, err = resolveEnvironment(v, projectPath, environment)
-		return err
-	})
-	return pairs, err
+	session, err := OpenSession(vaultPath, password)
+	if err != nil {
+		return nil, err
+	}
+	defer session.Close()
+	return session.ResolveEnvironment(projectPath, environment)
 }
 
 func (VaultService) List(path string, password []byte) ([]string, error) {
@@ -90,11 +91,12 @@ func (VaultService) List(path string, password []byte) ([]string, error) {
 }
 
 func (VaultService) Link(vaultPath, projectPath, environment, variable, rawReference string, password []byte) error {
-	change, err := linkChange(projectPath, environment, variable, rawReference)
+	session, err := OpenSession(vaultPath, password)
 	if err != nil {
 		return err
 	}
-	return withVault(vaultPath, password, func(v *vault.Opened) error { return v.Update(change) })
+	defer session.Close()
+	return session.Link(projectPath, environment, variable, rawReference)
 }
 
 func (VaultService) Usage(vaultPath, rawReference string, password []byte) ([]Usage, error) {
@@ -153,29 +155,6 @@ func putAll(planned []plannedEntry) func(*vault.Opened) error {
 		}
 		return nil
 	}
-}
-
-func linkChange(projectPath, environment, variable, rawReference string) (func(*vault.Opened) error, error) {
-	if environment == "" || !project.VariableName(variable) {
-		return nil, project.ErrInvalidConfig
-	}
-	ref, err := domain.ParseReference(rawReference)
-	if err != nil {
-		return nil, err
-	}
-	return func(v *vault.Opened) error {
-		if err := project.UpdateAtomic(projectPath, func(config *project.Config) error {
-			if config.Environments[environment] == nil {
-				config.Environments[environment] = map[string]domain.Reference{}
-			}
-			config.Environments[environment][variable] = ref
-			return nil
-		}); err != nil {
-			return err
-		}
-		v.RegisterProject(projectPath)
-		return nil
-	}, nil
 }
 
 func referenceNames(v *vault.Opened) []string {

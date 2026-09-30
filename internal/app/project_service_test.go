@@ -15,7 +15,7 @@ func TestLinkAndUsageReadCurrentProjectConfiguration(t *testing.T) {
 	vaultPath := filepath.Join(root, "vault.ev1")
 	projectPath := filepath.Join(root, "envrune.yml")
 	password := []byte("correct horse battery staple")
-	if err := vault.Create(vaultPath, password, crypto.DefaultKDFParams(1)); err != nil {
+	if _, err := vault.Create(vaultPath, password, crypto.DefaultKDFParams(1)); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(projectPath, []byte("version: 1\nproject: x\nenvironments: {}\n"), 0600); err != nil {
@@ -43,7 +43,7 @@ func TestLinkWrongPasswordDoesNotModifyProject(t *testing.T) {
 	vaultPath := filepath.Join(root, "vault.ev1")
 	projectPath := filepath.Join(root, "envrune.yml")
 	password := []byte("correct horse battery staple")
-	if err := vault.Create(vaultPath, password, crypto.DefaultKDFParams(1)); err != nil {
+	if _, err := vault.Create(vaultPath, password, crypto.DefaultKDFParams(1)); err != nil {
 		t.Fatal(err)
 	}
 	initial := []byte("version: 1\nproject: x\nenvironments: {}\n")

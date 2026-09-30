@@ -9,6 +9,7 @@ import (
 	"github.com/YagoLagrottiBracco/envrune/internal/domain"
 	"github.com/YagoLagrottiBracco/envrune/internal/project"
 	"github.com/YagoLagrottiBracco/envrune/internal/runner"
+	"github.com/YagoLagrottiBracco/envrune/internal/team"
 	"github.com/YagoLagrottiBracco/envrune/internal/vault"
 )
 
@@ -31,6 +32,40 @@ func (e *MissingEnvironmentError) Error() string {
 
 func (e *MissingEnvironmentError) Is(target error) bool { return target == ErrMissingEnvironment }
 
+// NoEnvironmentChosenError means no --env was given and envrune.yml has no
+// default_env while it defines several environments.
+type NoEnvironmentChosenError struct{ Available []string }
+
+func (e *NoEnvironmentChosenError) Error() string {
+	if len(e.Available) == 0 {
+		return "envrune.yml defines no environments yet; pass --env to create one"
+	}
+	return fmt.Sprintf("choose an environment with --env or set default_env in envrune.yml; available: %s", strings.Join(e.Available, ", "))
+}
+
+func (e *NoEnvironmentChosenError) Is(target error) bool { return target == ErrMissingEnvironment }
+
+// ChooseEnvironment picks the requested environment, else default_env, else
+// the only environment.
+func ChooseEnvironment(config project.Config, requested string) (string, error) {
+	names := config.EnvironmentNames()
+	switch {
+	case requested != "":
+		if config.Environments[requested] == nil {
+			return "", &MissingEnvironmentError{Environment: requested, Available: names}
+		}
+		return requested, nil
+	case config.DefaultEnv != "":
+		if config.Environments[config.DefaultEnv] == nil {
+			return "", &MissingEnvironmentError{Environment: config.DefaultEnv, Available: names}
+		}
+		return config.DefaultEnv, nil
+	case len(names) == 1:
+		return names[0], nil
+	}
+	return "", &NoEnvironmentChosenError{Available: names}
+}
+
 // MissingBinding is one variable whose reference has no stored secret.
 type MissingBinding struct {
 	Variable  string
@@ -51,25 +86,74 @@ func (e *MissingSecretError) Error() string {
 	if len(parts) > 1 {
 		noun = "references do"
 	}
-	return fmt.Sprintf("secret %s not exist in the vault: %s", noun, strings.Join(parts, ", "))
+	return fmt.Sprintf("secret %s not exist: %s", noun, strings.Join(parts, ", "))
 }
 
 func (e *MissingSecretError) Is(target error) bool { return target == ErrMissingSecret }
 
-func resolveEnvironment(v *vault.Opened, projectPath, environment string) ([]runner.Pair, error) {
+// Resolved is one environment ready to inject.
+type Resolved struct {
+	Environment string
+	Pairs       []runner.Pair
+}
+
+// sources looks references up in the personal vault and, for references that
+// start with "team.", in the team file next to envrune.yml.
+type sources struct {
+	vault    *vault.Opened // nil in identity-only mode
+	identity func() (string, error)
+	team     *team.File
+	teamErr  error
+	loaded   bool
+}
+
+func (s *sources) teamFile(projectPath string) (*team.File, error) {
+	if !s.loaded {
+		s.loaded = true
+		path := team.Path(projectPath)
+		if !team.Exists(path) {
+			s.teamErr = ErrNoTeamFile
+		} else if identity, err := s.identity(); err != nil {
+			s.teamErr = err
+		} else {
+			s.team, s.teamErr = team.Open(path, identity)
+		}
+	}
+	return s.team, s.teamErr
+}
+
+func (s *sources) value(projectPath string, ref domain.Reference) ([]byte, bool, error) {
+	if team.IsTeamReference(ref) {
+		file, err := s.teamFile(projectPath)
+		if err != nil {
+			return nil, false, err
+		}
+		value, ok := file.Value(ref)
+		return value, ok, nil
+	}
+	if s.vault == nil {
+		return nil, false, ErrNoVault
+	}
+	value, ok := s.vault.Value(ref)
+	return value, ok, nil
+}
+
+func (s *sources) close() {
+	if s.team != nil {
+		s.team.Close()
+	}
+}
+
+func resolve(src *sources, projectPath, requested string) (Resolved, error) {
 	config, err := project.Load(projectPath)
 	if err != nil {
-		return nil, err
+		return Resolved{}, err
 	}
-	mappings, ok := config.Environments[environment]
-	if !ok {
-		available := make([]string, 0, len(config.Environments))
-		for name := range config.Environments {
-			available = append(available, name)
-		}
-		sort.Strings(available)
-		return nil, &MissingEnvironmentError{Environment: environment, Available: available}
+	environment, err := ChooseEnvironment(config, requested)
+	if err != nil {
+		return Resolved{}, err
 	}
+	mappings := config.Environments[environment]
 	variables := make([]string, 0, len(mappings))
 	for variable := range mappings {
 		variables = append(variables, variable)
@@ -78,7 +162,11 @@ func resolveEnvironment(v *vault.Opened, projectPath, environment string) ([]run
 	pairs := make([]runner.Pair, 0, len(variables))
 	var missing []MissingBinding
 	for _, variable := range variables {
-		value, exists := v.Value(mappings[variable])
+		value, exists, err := src.value(projectPath, mappings[variable])
+		if err != nil {
+			wipePairs(pairs)
+			return Resolved{}, err
+		}
 		if !exists {
 			missing = append(missing, MissingBinding{Variable: variable, Reference: mappings[variable]})
 			continue
@@ -87,7 +175,7 @@ func resolveEnvironment(v *vault.Opened, projectPath, environment string) ([]run
 	}
 	if len(missing) > 0 {
 		wipePairs(pairs)
-		return nil, &MissingSecretError{Environment: environment, Missing: missing}
+		return Resolved{}, &MissingSecretError{Environment: environment, Missing: missing}
 	}
-	return pairs, nil
+	return Resolved{Environment: environment, Pairs: pairs}, nil
 }
