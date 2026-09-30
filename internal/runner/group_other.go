@@ -9,4 +9,8 @@ import (
 
 func ownGroup(*exec.Cmd) {}
 
-func stopTree(process *os.Process, _ bool) { _ = process.Kill() }
+type tree struct{}
+
+func track(*os.Process) tree { return tree{} }
+
+func stopTree(process *os.Process, _ bool, _ *tree) { _ = process.Kill() }

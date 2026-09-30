@@ -58,6 +58,7 @@ type Spec struct {
 type Process struct {
 	cmd   *exec.Cmd
 	group bool
+	tree  tree
 }
 
 // Start resolves the command through PATH (or relative to Dir when it
@@ -91,7 +92,11 @@ func Start(spec Spec) (*Process, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, &StartError{Name: name, Err: err}
 	}
-	return &Process{cmd: cmd, group: spec.Group}, nil
+	p := &Process{cmd: cmd, group: spec.Group}
+	if spec.Group {
+		p.tree = track(cmd.Process)
+	}
+	return p, nil
 }
 
 // Wait returns the child's exit code and an error that explains a failure.
@@ -107,10 +112,13 @@ func (p *Process) Wait() (int, error) {
 	return 1, &StartError{Name: p.cmd.Args[0], Err: err}
 }
 
-// Stop asks the child, and its process group when it has one, to exit.
+// Stop asks the child, and its process group when it has one, to exit. For a
+// grouped child it also reaches processes the child started, even after the
+// child itself has exited, so call it once a grouped child is no longer
+// needed. Stop is not safe to call from several goroutines at once.
 func (p *Process) Stop() {
 	if p.cmd.Process != nil {
-		stopTree(p.cmd.Process, p.group)
+		stopTree(p.cmd.Process, p.group, &p.tree)
 	}
 }
 

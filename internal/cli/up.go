@@ -201,5 +201,8 @@ func (w Workspace) up(argv []string) int {
 			}
 		}
 	}
+	// Every service has exited; this ends what they left behind, such as a
+	// server started by a script that already returned.
+	stopAll()
 	return result
 }
