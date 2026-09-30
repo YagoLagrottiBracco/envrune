@@ -39,6 +39,8 @@ Secrets
   history <reference>         List when earlier values were replaced
   remove <reference>
   import <file.env>
+  migrate [folder] [--siblings] [--env e]
+                              Move .env files into the vault and envrune.yml
 
 Projects
   link <VAR> <reference> [--env e]  Bind a variable; offers to create the secret

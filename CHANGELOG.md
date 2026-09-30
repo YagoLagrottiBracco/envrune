@@ -22,6 +22,11 @@ All notable changes to EnvRune are listed here. The format follows
   pre-commit hook; with the vault locked it warns, or blocks with `--strict`.
 - **`envrune scan`** finds vault and team values in files, logs, and every
   commit on every branch, and exits with code 1 when it finds one.
+- **`envrune migrate`** moves the `.env` files of a project, or of its sibling
+  folders, into the vault and `envrune.yml`: it shows the plan without values,
+  offers a shared reference for values several projects use, never overwrites
+  a different vault value, updates `.gitignore`, and offers to delete the files.
+  It reads the dotenv syntax Node and Python libraries accept.
 - **`variables:`** in `envrune.yml` documents each variable (description,
   how to get it, type, format, required). `envrune setup` walks a developer
   through them, and `run`, `up`, `env`, and `export` refuse values that do not

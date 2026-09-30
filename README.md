@@ -171,9 +171,10 @@ turning it into a secret-bearing file.
 | `set <reference>` | Store or replace a value through a hidden prompt, asked twice. |
 | `list [--long]` / `info` / `usage <reference>` | Review references, their metadata, and where they are bound. |
 | `link <VAR> <reference> [--env e]` | Add a binding to the nearest `envrune.yml`, and offer to store a new value. |
+| `migrate [--siblings]` | Move `.env` files into the vault and `envrune.yml`, after showing the plan. |
 | `setup [--env e]` | Walk through the variables documented in `envrune.yml`, storing and linking each one. |
 | `diff <env> <env>` | Compare the variables two environments define, by name only. |
-| `types [ts|python]` | Generate `env.d.ts` or a pydantic `Settings` class from `variables:`. |
+| `types [ts\|python]` | Generate `env.d.ts` or a pydantic `Settings` class from `variables:`. |
 | `run [--env e] [--no-redact] -- <command>` | Start one direct child process with resolved variables; values it prints show as `****`. |
 | `<name>` / `up` | Run a command from `commands:` in `envrune.yml`, or several at once. |
 | `copy <reference>` | Copy a value to the clipboard; cleared after 30 seconds. |
@@ -195,6 +196,7 @@ output is already plain.
 | Guide | Read it when you want to… |
 | --- | --- |
 | [Getting started](docs/getting-started.md) | Build EnvRune, create a vault, and connect a first project. |
+| [Moving from .env files](docs/migrate.md) | Import every `.env` file of a project, or of several, with `envrune migrate`. |
 | [Daily workflow](docs/daily-workflow.md) | Unlock once, use a default environment, named commands, `up`, `copy`, `doctor`, rotation, and recovery. |
 | [Advanced usage](docs/advanced-usage.md) | Work with environments, imports, exports, generated values, and sessions. |
 | [Integrations](docs/integrations.md) | Use EnvRune from VS Code, Docker Compose, and a direnv-style terminal hook. |

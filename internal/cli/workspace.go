@@ -62,6 +62,7 @@ func init() {
 		"setup":    Workspace.setup,
 		"diff":     Workspace.diff,
 		"types":    Workspace.types,
+		"migrate":  Workspace.migrate,
 		"passwd":   Workspace.passwd,
 		"recovery": Workspace.recovery,
 		"team":     Workspace.team,
