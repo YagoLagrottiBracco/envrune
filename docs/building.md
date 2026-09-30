@@ -39,6 +39,17 @@ The `ci` GitHub Actions workflow runs `go vet`, the unit tests, and the
 integration tests on Linux, macOS, and Windows for every push and pull
 request, and checks that other targets still compile.
 
+EnvRune Cloud has two more suites. With Docker running, from the repository
+root:
+
+```sh
+(cd cloud && npx supabase start && npx supabase test db)   # database access rules
+cloud/e2e.sh   # the CLI's client against the API and the database, all local
+```
+
+`cloud/e2e.sh` builds the API in `cloud/web`, starts it next to a local
+Supabase, and runs `go test -tags e2e ./internal/cloud`. CI runs both.
+
 ## Build a local binary
 
 ```sh
