@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/YagoLagrottiBracco/envrune/internal/project"
+	"github.com/YagoLagrottiBracco/envrune/internal/redact"
 	"github.com/YagoLagrottiBracco/envrune/internal/team"
 )
 
@@ -173,12 +174,22 @@ func (s *Session) CheckSecrets(projectPath string, now time.Time) []Finding {
 	if err == nil {
 		for _, environment := range config.EnvironmentNames() {
 			resolved, err := s.Resolve(projectPath, environment)
+			var short []string
+			for _, pair := range resolved.Pairs {
+				if len(pair.Value) < redact.MinLength {
+					short = append(short, pair.Name)
+				}
+			}
 			wipePairs(resolved.Pairs)
 			switch {
 			case err == nil:
 				out = append(out, Finding{LevelOK, fmt.Sprintf("environment %s: all %d references exist", environment, len(config.Environments[environment]))})
 			default:
 				out = append(out, Finding{LevelError, fmt.Sprintf("environment %s: %v", environment, err)})
+			}
+			if len(short) > 0 {
+				sort.Strings(short)
+				out = append(out, Finding{LevelWarn, fmt.Sprintf("environment %s: %s shorter than %d characters, so run and up do not mask it in output", environment, strings.Join(short, ", ")+pluralVerb(len(short)), redact.MinLength)})
 			}
 		}
 	}
@@ -208,4 +219,11 @@ func (s *Session) CheckSecrets(projectPath string, now time.Time) []Finding {
 		}
 	}
 	return out
+}
+
+func pluralVerb(n int) string {
+	if n == 1 {
+		return " is"
+	}
+	return " are"
 }

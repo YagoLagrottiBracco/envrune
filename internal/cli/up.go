@@ -13,6 +13,7 @@ import (
 
 	"github.com/YagoLagrottiBracco/envrune/internal/app"
 	"github.com/YagoLagrottiBracco/envrune/internal/project"
+	"github.com/YagoLagrottiBracco/envrune/internal/redact"
 	"github.com/YagoLagrottiBracco/envrune/internal/runner"
 )
 
@@ -58,14 +59,15 @@ type service struct {
 	process *runner.Process
 	stdout  *prefixWriter
 	stderr  *prefixWriter
+	masks   []*redact.Writer // in front of stdout and stderr, when masking
 }
 
 // up starts several commands from envrune.yml at once, with one unlock.
 // When one exits, the others are stopped, as foreman and Procfile runners do.
 func (w Workspace) up(argv []string) int {
-	a, err := parseArgs(argv, []string{"env"}, nil, false)
+	a, err := parseArgs(argv, []string{"env"}, []string{"no-redact"}, false)
 	if err != nil {
-		return w.usageError("up [command...] [--env <environment>]")
+		return w.usageError("up [command...] [--env <environment>] [--no-redact]")
 	}
 	projectPath, err := w.findProject()
 	if err != nil {
@@ -105,14 +107,14 @@ func (w Workspace) up(argv []string) int {
 			wipePairs(r.Pairs)
 		}
 	}()
-	var mu sync.Mutex
-	var services []*service
-	stopAll := func() {
-		for _, s := range services {
-			s.process.Stop()
-		}
+	type plan struct {
+		name, dir string
+		command   project.Command
+		words     []string
+		resolved  app.Resolved
 	}
-	for i, name := range names {
+	var plans []plan
+	for _, name := range names {
 		command := config.Commands[name]
 		environment := command.Env
 		if a.options["env"] != "" {
@@ -123,37 +125,54 @@ func (w Workspace) up(argv []string) int {
 		r, ok := resolved[key]
 		if !ok {
 			if r, err = w.resolveCommand(name, command, secrets, environment); err != nil {
-				stopAll()
 				return 1
 			}
 			resolved[key] = r
 		}
 		words, err := parseShellLine(command.Run)
 		if err != nil || len(words) == 0 {
-			stopAll()
 			status.Error(fmt.Sprintf("commands.%s in envrune.yml has unbalanced quotes.", name))
 			return 2
 		}
-		prefix := fmt.Sprintf("%-*s | ", width, name)
+		plans = append(plans, plan{name, dir, command, words, r})
+	}
+
+	// One matcher with every service's values, so a service that prints
+	// another one's secret is masked too.
+	var all []runner.Pair
+	for _, r := range resolved {
+		all = append(all, r.Pairs...)
+	}
+	var matcher *redact.Matcher
+	if !a.flags["no-redact"] {
+		matcher = pairMatcher(all)
+		defer matcher.Wipe()
+	}
+	var mu sync.Mutex
+	var services []*service
+	stopAll := func() {
+		for _, s := range services {
+			s.process.Stop()
+		}
+	}
+	for i, p := range plans {
+		prefix := fmt.Sprintf("%-*s | ", width, p.name)
 		if color {
 			prefix = serviceColors[i%len(serviceColors)] + prefix + ansiReset
 		}
-		s := &service{name: name, stdout: &prefixWriter{mu: &mu, out: w.Stdout, prefix: prefix}, stderr: &prefixWriter{mu: &mu, out: w.Stderr, prefix: prefix}}
-		s.process, err = runner.Start(runner.Spec{
-			Command:   words,
-			Additions: r.Pairs,
-			Inherited: w.environ(),
-			Dir:       dir,
-			Stdout:    s.stdout,
-			Stderr:    s.stderr,
-			Group:     true,
-		})
+		s := &service{name: p.name, stdout: &prefixWriter{mu: &mu, out: w.Stdout, prefix: prefix}, stderr: &prefixWriter{mu: &mu, out: w.Stderr, prefix: prefix}}
+		spec := runner.Spec{Command: p.words, Additions: p.resolved.Pairs, Inherited: w.environ(), Dir: p.dir, Stdout: s.stdout, Stderr: s.stderr, Group: true}
+		if matcher != nil && !matcher.Empty() {
+			s.masks = []*redact.Writer{redact.NewWriter(s.stdout, matcher), redact.NewWriter(s.stderr, matcher)}
+			spec.Stdout, spec.Stderr = s.masks[0], s.masks[1]
+		}
+		s.process, err = runner.Start(spec)
 		if err != nil {
 			stopAll()
-			return w.fail(err, fmt.Sprintf("%s could not start.", name))
+			return w.fail(err, fmt.Sprintf("%s could not start.", p.name))
 		}
 		services = append(services, s)
-		status.Info(fmt.Sprintf("Started %s (%s) with %d variables from %s.", name, strings.Join(words, " "), len(r.Pairs), sourceLabel(command, r.Environment)))
+		status.Info(fmt.Sprintf("Started %s (%s) with %d variables from %s.", p.name, strings.Join(p.words, " "), len(p.resolved.Pairs), sourceLabel(p.command, p.resolved.Environment)))
 	}
 	status.Info("Press Ctrl+C to stop every service.")
 
@@ -166,6 +185,9 @@ func (w Workspace) up(argv []string) int {
 	for _, s := range services {
 		go func(s *service) {
 			code, err := s.process.Wait()
+			for _, mask := range s.masks {
+				_ = mask.Close()
+			}
 			s.stdout.flush()
 			s.stderr.flush()
 			exits <- exit{s.name, code, err}

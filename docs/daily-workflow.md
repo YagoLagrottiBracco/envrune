@@ -155,6 +155,32 @@ otherwise. `envrune up` still asks for the master password once. `project:`
 must be a relative path, so the file works on every machine, and
 `envrune doctor` also checks each `envrune.yml` it points to.
 
+## Values stay out of your terminal
+
+`run`, named commands, and `up` replace any vault value a child prints with
+`****`, including its URL-encoded and base64 forms:
+
+```text
+$ envrune run -- node -e "console.log(process.env.STRIPE_KEY)"
+****
+```
+
+In a terminal, the child still runs in one, a pseudo-terminal that EnvRune
+reads from, so colors, progress bars, and prompts work as before. Values
+shorter than six characters, such as `3000` or `true`, are not masked;
+`envrune doctor` lists them. Add `--no-redact` to connect the child straight
+to your terminal:
+
+```sh
+envrune run --no-redact -- ./debug-config
+envrune up --no-redact
+```
+
+Masking protects against accidents, such as a debug log in a screen
+recording. A program that wants to leak a value can still do it, for example
+by printing it reversed. [Output redaction](redaction.md) describes the
+limits.
+
 ## Linking a reference that does not exist yet
 
 ```text

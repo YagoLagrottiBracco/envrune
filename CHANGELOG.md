@@ -17,6 +17,11 @@ All notable changes to EnvRune are listed here. The format follows
 
 ### Added
 
+- **Output masking:** `run`, named commands, and `up` replace any value a
+  child prints with `****`, including URL-encoded and base64 forms and values
+  split across writes. In a terminal the child gets a pseudo-terminal (pty on
+  Linux and macOS, ConPTY on Windows), so colors and prompts keep working.
+  `--no-redact` turns it off, and `doctor` lists values too short to mask.
 - **Unlock once:** `envrune unlock --ttl 8h` starts an agent, like
   `ssh-agent`, that new terminals use instead of asking for the password.
   `envrune lock` and `envrune status` end it and show it. On Windows the

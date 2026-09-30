@@ -115,13 +115,13 @@ func TestRunNamedCommandAndUpWithDefaultEnvironment(t *testing.T) {
 	if err := f.session.Link(f.projectPath, "production", "API_KEY", "demo.prod"); err != nil {
 		t.Fatal(err)
 	}
-	if code := f.run("hello"); code != 0 || !strings.Contains(f.stdout.String(), "hello dev-value") {
+	if code := f.run("hello", "--no-redact"); code != 0 || !strings.Contains(f.stdout.String(), "hello dev-value") {
 		t.Fatalf("hello = %d: %s", code, f.output())
 	}
-	if code := f.run("run", "cmd", "/c", "echo run %API_KEY%"); code != 0 || !strings.Contains(f.stdout.String(), "run dev-value") {
+	if code := f.run("run", "--no-redact", "cmd", "/c", "echo run %API_KEY%"); code != 0 || !strings.Contains(f.stdout.String(), "run dev-value") {
 		t.Fatalf("run = %d: %s", code, f.output())
 	}
-	f.run("up", "hello", "other")
+	f.run("up", "--no-redact", "hello", "other")
 	for _, want := range []string{"hello | hello dev-value", "other | other prod-value"} {
 		if !strings.Contains(f.stdout.String(), want) {
 			t.Fatalf("up output misses %q: %s", want, f.output())
@@ -305,7 +305,7 @@ func TestUpStartsServicesThatKeepTheirOwnEnvrune(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if code := f.run("up"); code != 0 {
+	if code := f.run("up", "--no-redact"); code != 0 {
 		t.Fatalf("up = %d: %s", code, f.output())
 	}
 	for _, want := range []string{"api | api api-value", "web | web web-staging", "from development in api", "from staging in web"} {
@@ -321,5 +321,57 @@ func TestUpStartsServicesThatKeepTheirOwnEnvrune(t *testing.T) {
 		if !strings.Contains(f.output(), want) {
 			t.Fatalf("doctor output misses %q: %s", want, f.output())
 		}
+	}
+}
+
+func TestRunAndUpMaskValuesUnlessAskedNotTo(t *testing.T) {
+	config := baseConfig + "commands:\n" +
+		"  one: " + echoCommand("one") + "\n" +
+		"  two:\n    run: " + echoCommand("two") + "\n    env: production\n"
+	f := newFixture(t, config)
+	for ref, value := range map[string]string{"demo.dev": "dev-secret-value", "demo.prod": "prod-secret-value"} {
+		if err := f.session.Set(ref, []byte(value)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.session.Link(f.projectPath, "development", "API_KEY", "demo.dev"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.session.Link(f.projectPath, "production", "API_KEY", "demo.prod"); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"one"}, {"up", "one", "two"}} {
+		f.run(args...)
+		if strings.Contains(f.output(), "secret-value") {
+			t.Fatalf("%v printed a value:\n%s", args, f.output())
+		}
+		if !strings.Contains(f.output(), "one ****") {
+			t.Fatalf("%v output = %s", args, f.output())
+		}
+	}
+	if !strings.Contains(f.output(), "two ****") {
+		t.Fatalf("up output = %s", f.output())
+	}
+	f.run("one", "--no-redact")
+	if !strings.Contains(f.output(), "one dev-secret-value") {
+		t.Fatalf("--no-redact output = %s", f.output())
+	}
+}
+
+func TestDoctorListsValuesTooShortToMask(t *testing.T) {
+	f := newFixture(t, baseConfig)
+	for ref, value := range map[string]string{"demo.port": "3000", "demo.key": "long-enough-value"} {
+		if err := f.session.Set(ref, []byte(value)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for variable, ref := range map[string]string{"PORT": "demo.port", "API_KEY": "demo.key"} {
+		if err := f.session.Link(f.projectPath, "development", variable, ref); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.run("doctor")
+	if !strings.Contains(f.output(), "environment development: PORT is shorter than 6 characters") || strings.Contains(f.output(), "API_KEY is shorter") {
+		t.Fatalf("doctor output = %s", f.output())
 	}
 }

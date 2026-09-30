@@ -171,7 +171,7 @@ turning it into a secret-bearing file.
 | `set <reference>` | Store or replace a value through a hidden prompt, asked twice. |
 | `list [--long]` / `info` / `usage <reference>` | Review references, their metadata, and where they are bound. |
 | `link <VAR> <reference> [--env e]` | Add a binding to the nearest `envrune.yml`, and offer to store a new value. |
-| `run [--env e] -- <command>` | Start one direct child process with resolved variables. |
+| `run [--env e] [--no-redact] -- <command>` | Start one direct child process with resolved variables; values it prints show as `****`. |
 | `<name>` / `up` | Run a command from `commands:` in `envrune.yml`, or several at once. |
 | `copy <reference>` | Copy a value to the clipboard; cleared after 30 seconds. |
 | `rotate` / `rollback` / `history` | Replace a value and keep the previous ones. |
@@ -211,6 +211,10 @@ output is already plain.
 - `run` launches the requested child process directly, without a shell in the
   middle. On Linux, the runner marks itself non-dumpable immediately before
   `exec`.
+- `run` and `up` replace any value a child prints with `****`, which keeps
+  values out of terminals, screen recordings, and logs by accident. It does
+  not stop a program that leaks a value on purpose; see
+  [Output redaction](docs/redaction.md).
 - The dashboard listens only on loopback, exposes metadata rather than values,
   and uses one-time session material, Host/Origin checks, CSRF protection, and
   no-store headers.

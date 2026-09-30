@@ -109,6 +109,14 @@ func (h *harness) project(rel, config string) string {
 func (h *harness) command(dir string, extraEnv []string, args ...string) (*exec.Cmd, *bytes.Buffer) {
 	cmd := exec.Command(envruneBin, args...)
 	cmd.Dir = dir
+	cmd.Env = append(h.environ(), extraEnv...)
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	return cmd, &out
+}
+
+// environ is the environment envrune runs with in these tests.
+func (h *harness) environ() []string {
 	env := []string{"ENVRUNE_VAULT=" + h.vault, "ENVRUNE_PASSWORD=" + password, "NO_COLOR=1", "PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}
 	for _, entry := range os.Environ() {
 		name, _, _ := strings.Cut(entry, "=")
@@ -116,10 +124,7 @@ func (h *harness) command(dir string, extraEnv []string, args ...string) (*exec.
 			env = append(env, entry)
 		}
 	}
-	cmd.Env = append(env, extraEnv...)
-	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
-	return cmd, &out
+	return env
 }
 
 func (h *harness) run(dir string, args ...string) (string, int) {
@@ -155,7 +160,7 @@ func TestRunFindsBareCommandsOnPath(t *testing.T) {
 	h := newHarness(t)
 	h.set("demo.api-key", "sk-integration")
 	dir := h.project("app", devConfig)
-	out, code := h.run(dir, "run", "--", "probe", "print", "API_KEY", "pwd")
+	out, code := h.run(dir, "run", "--no-redact", "--", "probe", "print", "API_KEY", "pwd")
 	if code != 0 {
 		t.Fatalf("run = %d:\n%s", code, out)
 	}
@@ -229,7 +234,7 @@ func TestRunsShareTheVaultWithWriters(t *testing.T) {
 	for _, name := range []string{"api", "backend", "web"} {
 		h.set("demo."+name, "value-"+name)
 		dir := h.project(name, fmt.Sprintf("version: 1\nproject: %s\ndefault_env: development\nenvironments:\n  development:\n    TOKEN: demo.%s\n", name, name))
-		cmd, out := h.command(dir, nil, "run", "--", "probe", "print", "TOKEN", "sleep", "4s")
+		cmd, out := h.command(dir, nil, "run", "--no-redact", "--", "probe", "print", "TOKEN", "sleep", "4s")
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
 		}
@@ -271,14 +276,14 @@ up: [api, web]
 	h.project(filepath.Join("shop", "api"), "version: 1\nproject: api\ndefault_env: development\nenvironments:\n  development:\n    API_KEY: api.key\n")
 	web := h.project(filepath.Join("shop", "web"), "version: 1\nproject: web\ndefault_env: development\nenvironments:\n  development:\n    API_KEY: web.key\n")
 
-	out, code := h.run(root, "hello")
+	out, code := h.run(root, "hello", "--no-redact")
 	if code != 0 {
 		t.Fatalf("hello = %d:\n%s", code, out)
 	}
 	expect(t, out, "API_KEY=root-value")
 
 	started := time.Now()
-	out, _ = h.run(root, "up")
+	out, _ = h.run(root, "up", "--no-redact")
 	if elapsed := time.Since(started); elapsed > 30*time.Second {
 		t.Fatalf("up took %s; the api service was not stopped when web exited:\n%s", elapsed, out)
 	}
@@ -294,5 +299,19 @@ up: [api, web]
 	after, err := os.Stat(beat)
 	if err != nil || !after.ModTime().Equal(before.ModTime()) {
 		t.Fatalf("a process started by the web service still runs after up returned")
+	}
+}
+
+func TestRunMasksTheValuesItInjects(t *testing.T) {
+	h := newHarness(t)
+	h.set("demo.api-key", "sk-live-integration-value")
+	dir := h.project("app", devConfig)
+	out, code := h.run(dir, "run", "--", "probe", "print", "API_KEY")
+	if code != 0 {
+		t.Fatalf("run = %d:\n%s", code, out)
+	}
+	expect(t, out, "API_KEY=****")
+	if strings.Contains(out, "integration-value") {
+		t.Fatalf("run printed the value:\n%s", out)
 	}
 }

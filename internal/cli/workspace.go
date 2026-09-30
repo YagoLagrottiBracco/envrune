@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -426,8 +427,8 @@ func (w Workspace) resolve(environment string) (string, app.Resolved, error) {
 }
 
 func (w Workspace) run(argv []string) int {
-	const usage = "run [--env <environment>] [--] <command> [args...]"
-	a, err := parseArgs(argv, []string{"env"}, nil, true)
+	const usage = "run [--env <environment>] [--no-redact] [--] <command> [args...]"
+	a, err := parseArgs(argv, []string{"env"}, []string{"no-redact"}, true)
 	if err != nil || len(a.rest) == 0 {
 		return w.usageError(usage)
 	}
@@ -436,11 +437,33 @@ func (w Workspace) run(argv []string) int {
 	if err != nil {
 		return w.fail(err, "Configured secrets are unavailable.")
 	}
-	status := w.status()
-	status.Info(fmt.Sprintf("Starting %s with %d variables from %s.", a.rest[0], len(resolved.Pairs), resolved.Environment))
-	code, runErr := runner.Run(a.rest, resolved.Pairs, w.environ(), w.Stdout, w.Stderr)
-	if runErr != nil {
-		status.Error(describe(runErr, "The command could not be run."))
+	w.status().Info(fmt.Sprintf("Starting %s with %d variables from %s.", a.rest[0], len(resolved.Pairs), resolved.Environment))
+	return w.runChild(runner.Spec{Command: a.rest, Additions: resolved.Pairs, Inherited: w.environ()}, !a.flags["no-redact"])
+}
+
+// runChild runs spec attached to this terminal, masking the values it was
+// given unless mask is false, and reports how it ended.
+func (w Workspace) runChild(spec runner.Spec, mask bool) int {
+	output := w.childOutput(spec.Additions, mask)
+	spec.Stdin, spec.Stdout, spec.Stderr, spec.Terminal = os.Stdin, output.Stdout, output.Stderr, output.Terminal
+	process, err := runner.Start(spec)
+	if err != nil {
+		output.Close()
+		var missing *runner.CommandNotFoundError
+		code := 1
+		switch {
+		case errors.As(err, &missing):
+			code = 127
+		case errors.Is(err, runner.ErrInvalidCommand):
+			code = 2
+		}
+		w.status().Error(describe(err, "The command could not be run."))
+		return code
+	}
+	code, err := process.Wait()
+	output.Close()
+	if err != nil {
+		w.status().Error(describe(err, "The command failed."))
 	}
 	return code
 }
@@ -474,9 +497,9 @@ func sourceLabel(command project.Command, environment string) string {
 
 // runNamed runs a command defined under commands: in envrune.yml.
 func (w Workspace) runNamed(projectPath string, config project.Config, name string, argv []string) int {
-	a, err := parseArgs(argv, []string{"env"}, nil, true)
+	a, err := parseArgs(argv, []string{"env"}, []string{"no-redact"}, true)
 	if err != nil {
-		return w.usageError(name + " [--env <environment>] [args...]")
+		return w.usageError(name + " [--env <environment>] [--no-redact] [args...]")
 	}
 	command := config.Commands[name]
 	words, err := parseShellLine(command.Run)
@@ -495,25 +518,8 @@ func (w Workspace) runNamed(projectPath string, config project.Config, name stri
 		return 1
 	}
 	defer wipePairs(resolved.Pairs)
-	status := w.status()
-	status.Info(fmt.Sprintf("Running %s with %d variables from %s.", name, len(resolved.Pairs), sourceLabel(command, resolved.Environment)))
-	process, err := runner.Start(runner.Spec{
-		Command:   words,
-		Additions: resolved.Pairs,
-		Inherited: w.environ(),
-		Dir:       dir,
-		Stdin:     os.Stdin,
-		Stdout:    w.Stdout,
-		Stderr:    w.Stderr,
-	})
-	if err != nil {
-		return w.fail(err, "The command could not be run.")
-	}
-	code, err := process.Wait()
-	if err != nil {
-		status.Error(describe(err, "The command failed."))
-	}
-	return code
+	w.status().Info(fmt.Sprintf("Running %s with %d variables from %s.", name, len(resolved.Pairs), sourceLabel(command, resolved.Environment)))
+	return w.runChild(runner.Spec{Command: words, Additions: resolved.Pairs, Inherited: w.environ(), Dir: dir}, !a.flags["no-redact"])
 }
 
 func (w Workspace) export(argv []string) int {

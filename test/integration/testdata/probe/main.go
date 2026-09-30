@@ -6,23 +6,39 @@
 //	sleep 2s       waits
 //	exit N         exits with code N
 //	heartbeat F    starts a grandchild that writes to file F every 100ms
+//	tty            prints tty=true when its output is a terminal
+//	read           reads a line and prints got LINE
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
+
+	"golang.org/x/term"
 )
 
 func main() {
 	args := os.Args[1:]
 	for len(args) > 0 {
 		step := args[0]
-		if step == "pwd" {
+		switch step {
+		case "pwd":
 			wd, _ := os.Getwd()
 			fmt.Println("pwd=" + wd)
+			args = args[1:]
+			continue
+		case "tty":
+			fmt.Printf("tty=%t\n", term.IsTerminal(int(os.Stdout.Fd())))
+			args = args[1:]
+			continue
+		case "read":
+			line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+			fmt.Println("got " + strings.TrimSpace(line))
 			args = args[1:]
 			continue
 		}

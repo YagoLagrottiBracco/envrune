@@ -52,13 +52,25 @@ type Spec struct {
 	// Group starts the child in its own process group so Stop reaches every
 	// process it spawns. The terminal's Ctrl+C then no longer reaches it.
 	Group bool
+	// Terminal attaches the child to a new pseudo-terminal sized like this
+	// process's terminal, and sends everything it prints, standard error
+	// included, to Stdout, and Stderr is ignored. When Stdin is os.Stdin and
+	// a terminal, it is switched to raw mode and forwarded to the child until
+	// the child exits, so keys such as Ctrl+C reach the child as they would
+	// without Envrune. Any other Stdin is copied to the child's terminal as
+	// typed input. Where no pseudo-terminal is available, the child gets
+	// pipes instead.
+	Terminal bool
 }
 
 // Process is a running child.
 type Process struct {
-	cmd   *exec.Cmd
-	group bool
-	tree  tree
+	cmd     *exec.Cmd // nil when the child was started through ConPTY
+	process *os.Process
+	name    string
+	group   bool
+	tree    tree
+	console *console // the pseudo-terminal, when Spec.Terminal was set
 }
 
 // Start resolves the command through PATH (or relative to Dir when it
@@ -79,20 +91,28 @@ func Start(spec Spec) (*Process, error) {
 	if abs, err := filepath.Abs(path); err == nil {
 		path = abs
 	}
+	env := extendEnvironment(spec.Inherited, spec.Additions)
+	if spec.Terminal && terminalAvailable() {
+		return startTerminal(name, path, spec, env)
+	}
 	cmd, err := childCommand(path, spec.Command)
 	if err != nil {
 		return nil, &StartError{Name: name, Err: err}
 	}
 	cmd.Dir = spec.Dir
-	cmd.Env = extendEnvironment(spec.Inherited, spec.Additions)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = spec.Stdin, spec.Stdout, spec.Stderr
+	cmd.Env = env
+	stdout, stderr := spec.Stdout, spec.Stderr
+	if spec.Terminal {
+		stderr = stdout // one stream, as in a terminal
+	}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = spec.Stdin, stdout, stderr
 	if spec.Group {
 		ownGroup(cmd)
 	}
 	if err := cmd.Start(); err != nil {
 		return nil, &StartError{Name: name, Err: err}
 	}
-	p := &Process{cmd: cmd, group: spec.Group}
+	p := &Process{cmd: cmd, process: cmd.Process, name: name, group: spec.Group}
 	if spec.Group {
 		p.tree = track(cmd.Process)
 	}
@@ -100,16 +120,30 @@ func Start(spec Spec) (*Process, error) {
 }
 
 // Wait returns the child's exit code and an error that explains a failure.
+// With a pseudo-terminal, it also waits for the child's last output and
+// gives the terminal back.
 func (p *Process) Wait() (int, error) {
-	err := p.cmd.Wait()
-	if err == nil {
-		return 0, nil
+	var state *os.ProcessState
+	var err error
+	if p.cmd != nil {
+		err = p.cmd.Wait()
+		state = p.cmd.ProcessState
+	} else {
+		state, err = p.process.Wait()
+	}
+	if p.console != nil {
+		p.console.finish()
 	}
 	var exit *exec.ExitError
-	if errors.As(err, &exit) {
+	switch {
+	case errors.As(err, &exit):
 		return exit.ExitCode(), &ExitError{Code: exit.ExitCode()}
+	case err != nil:
+		return 1, &StartError{Name: p.name, Err: err}
+	case state != nil && !state.Success():
+		return state.ExitCode(), &ExitError{Code: state.ExitCode()}
 	}
-	return 1, &StartError{Name: p.cmd.Args[0], Err: err}
+	return 0, nil
 }
 
 // Stop asks the child, and its process group when it has one, to exit. For a
@@ -117,8 +151,8 @@ func (p *Process) Wait() (int, error) {
 // child itself has exited, so call it once a grouped child is no longer
 // needed. Stop is not safe to call from several goroutines at once.
 func (p *Process) Stop() {
-	if p.cmd.Process != nil {
-		stopTree(p.cmd.Process, p.group, &p.tree)
+	if p.process != nil {
+		stopTree(p.process, p.group, &p.tree)
 	}
 }
 
