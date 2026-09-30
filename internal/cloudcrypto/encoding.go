@@ -40,7 +40,10 @@ func message(label string, fields ...[]byte) []byte {
 
 func str(s string) []byte { return []byte(s) }
 
-func unix(t time.Time) []byte { return []byte(strconv.FormatInt(t.UTC().UnixNano(), 10)) }
+// unix encodes a time as microseconds since 1970, the precision of
+// Postgres timestamps, and small enough to stay exact as a JavaScript number
+// in the API's JSON (nanoseconds would not).
+func unix(t time.Time) []byte { return []byte(strconv.FormatInt(t.UTC().UnixMicro(), 10)) }
 
 func uint64Field(n uint64) []byte { return binary.BigEndian.AppendUint64(nil, n) }
 

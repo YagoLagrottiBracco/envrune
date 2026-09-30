@@ -1,0 +1,52 @@
+[
+  {
+    "kind": "member",
+    "fields": {
+      "account_key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=",
+      "issued_at_us": 1790000000123456,
+      "issuer_id": "00000000-0000-0000-0000-00000000000a",
+      "org_id": "11111111-1111-1111-1111-111111111111",
+      "role": "admin",
+      "scope": [
+        "shop/*",
+        "billing/production"
+      ],
+      "user_id": "00000000-0000-0000-0000-00000000000b"
+    },
+    "public_key": "6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=",
+    "message": "AAAAEWVudnJ1bmUtbWVtYmVyLXYxAAAAJDExMTExMTExLTExMTEtMTExMS0xMTExLTExMTExMTExMTExMQAAACQwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMGIAAAAgAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAAAAFYWRtaW4AAAAZc2hvcC8qCmJpbGxpbmcvcHJvZHVjdGlvbgAAABAxNzkwMDAwMDAwMTIzNDU2AAAAJDAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDAwYQ==",
+    "signature": "wSvc1VM630uDjMRffIZ2Xi3xTPcvFRYQMtKR5JVhj93kXLWCHfLST0gtfTNPHItVj/K3HFLJq0SCK3Ri/qRhAg=="
+  },
+  {
+    "kind": "recipient",
+    "fields": {
+      "age_recipient": "age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3290gq",
+      "created_at_us": 1790000000123456,
+      "kind": "device",
+      "recipient_id": "laptop",
+      "scope": [],
+      "signing_key": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=",
+      "user_id": "00000000-0000-0000-0000-00000000000a"
+    },
+    "public_key": "6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=",
+    "message": "AAAAFGVudnJ1bmUtcmVjaXBpZW50LXYxAAAABmRldmljZQAAACQwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMGEAAAAGbGFwdG9wAAAAPmFnZTFxeXFzenFncHF5cXN6cWdwcXlxc3pxZ3BxeXFzenFncHF5cXN6cWdwcXlxc3pxZ3BxeXFzMzI5MGdxAAAAIAMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAAAAAAAAABAxNzkwMDAwMDAwMTIzNDU2",
+    "signature": "+FHkHgHLZuDzHqqEfTeLTMB4fOijRu8l9B1fW7oD5CDzmZpIxF89Lp+fo8FXwnxK62NRlrfivArGb7CW96XJCw=="
+  },
+  {
+    "kind": "recipient",
+    "fields": {
+      "age_recipient": "age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3290gq",
+      "created_at_us": 1790000000123456,
+      "kind": "machine",
+      "recipient_id": "tok123",
+      "scope": [
+        "shop/production"
+      ],
+      "signing_key": "",
+      "user_id": "00000000-0000-0000-0000-00000000000a"
+    },
+    "public_key": "6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=",
+    "message": "AAAAFGVudnJ1bmUtcmVjaXBpZW50LXYxAAAAB21hY2hpbmUAAAAkMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDBhAAAABnRvazEyMwAAAD5hZ2UxcXlxc3pxZ3BxeXFzenFncHF5cXN6cWdwcXlxc3pxZ3BxeXFzenFncHF5cXN6cWdwcXlxczMyOTBncQAAAAAAAAAPc2hvcC9wcm9kdWN0aW9uAAAAEDE3OTAwMDAwMDAxMjM0NTY=",
+    "signature": "LjzGBXZPtP1VyiV3/pYRQuyc65DMlqZdbgky3hlNOX12qol98CFdq/NAJPiqPrFJcm2xEvKn35b+BB4/GYhTDA=="
+  }
+]

@@ -12,8 +12,8 @@
 --     transaction.
 --   * Ciphertext and wrapped keys are readable only through fetch functions,
 --     which record the fetch in the audit log.
---   * Times that signatures cover are stored as nanoseconds (bigint), exactly
---     as signed; timestamptz keeps only microseconds.
+--   * Times that signatures cover are stored as microseconds (bigint), exactly
+--     as signed.
 
 create schema if not exists private;
 revoke all on schema private from public, anon, authenticated;
@@ -51,7 +51,7 @@ create table public.membership_certs (
   account_key  bytea not null check (length(account_key) = 32),
   role         text not null check (role in ('owner', 'admin', 'maintainer', 'consumer', 'auditor', 'removed')),
   scope        text[] not null,
-  issued_at_ns bigint not null,
+  issued_at_us bigint not null,
   issuer_id    uuid not null references auth.users,
   signature    bytea not null check (length(signature) = 64)
 );
@@ -77,7 +77,7 @@ create table public.devices (
   name          text not null default '',
   age_recipient text not null check (age_recipient like 'age1%'),
   signing_key   bytea check (signing_key is null or length(signing_key) = 32),
-  created_at_ns bigint not null,
+  created_at_us bigint not null,
   signature     bytea check (signature is null or length(signature) = 64),
   revoked_at    timestamptz,
   registered_at timestamptz not null default now(),
@@ -111,7 +111,7 @@ create table public.machine_tokens (
   name          text not null default '',
   age_recipient text not null check (age_recipient like 'age1%'),
   scope         text[] not null,
-  created_at_ns bigint not null,
+  created_at_us bigint not null,
   signature     bytea not null check (length(signature) = 64),
   secret_hash   bytea not null check (length(secret_hash) = 32),
   expires_at    timestamptz not null,
@@ -353,7 +353,7 @@ revoke select on public.wrapped_keys, public.secret_versions from anon, authenti
 -- ---------------------------------------------------------------- accounts and devices
 
 create or replace function public.register_account(p_account_key bytea, p_recovery_backup bytea,
-  p_recovery_recipient text, p_recovery_created_at_ns bigint, p_recovery_signature bytea) returns void
+  p_recovery_recipient text, p_recovery_created_at_us bigint, p_recovery_signature bytea) returns void
 language plpgsql security definer set search_path = '' as $$
 declare me uuid := private.caller();
 begin
@@ -361,8 +361,8 @@ begin
     raise exception 'this account is already registered; recover it with the recovery key' using errcode = '23505';
   end if;
   insert into public.profiles (user_id, account_key, recovery_backup) values (me, p_account_key, p_recovery_backup);
-  insert into public.devices (user_id, id, kind, name, age_recipient, created_at_ns, signature)
-  values (me, 'recovery', 'recovery', 'recovery key', p_recovery_recipient, p_recovery_created_at_ns, p_recovery_signature);
+  insert into public.devices (user_id, id, kind, name, age_recipient, created_at_us, signature)
+  values (me, 'recovery', 'recovery', 'recovery key', p_recovery_recipient, p_recovery_created_at_us, p_recovery_signature);
 end $$;
 
 -- The recovery backup, for a device restoring the account.
@@ -374,20 +374,20 @@ $$;
 -- A new device of the caller. Without a signature it waits for approval by
 -- a trusted device; with one, it was certified with the account key.
 create or replace function public.register_device(p_id text, p_name text, p_age_recipient text,
-  p_signing_key bytea, p_created_at_ns bigint, p_signature bytea default null) returns void
+  p_signing_key bytea, p_created_at_us bigint, p_signature bytea default null) returns void
 language plpgsql security definer set search_path = '' as $$
 declare me uuid := private.caller();
 begin
-  insert into public.devices (user_id, id, kind, name, age_recipient, signing_key, created_at_ns, signature)
-  values (me, p_id, 'device', p_name, p_age_recipient, p_signing_key, p_created_at_ns, p_signature);
+  insert into public.devices (user_id, id, kind, name, age_recipient, signing_key, created_at_us, signature)
+  values (me, p_id, 'device', p_name, p_age_recipient, p_signing_key, p_created_at_us, p_signature);
 end $$;
 
 -- A trusted device of the caller certifies a pending one.
-create or replace function public.approve_device(p_id text, p_created_at_ns bigint, p_signature bytea) returns void
+create or replace function public.approve_device(p_id text, p_created_at_us bigint, p_signature bytea) returns void
 language plpgsql security definer set search_path = '' as $$
 declare me uuid := private.caller();
 begin
-  update public.devices set created_at_ns = p_created_at_ns, signature = p_signature
+  update public.devices set created_at_us = p_created_at_us, signature = p_signature
   where user_id = me and id = p_id and kind = 'device' and signature is null and revoked_at is null;
   if not found then
     raise exception 'no pending device % for this account', p_id using errcode = 'P0002';
@@ -432,7 +432,7 @@ end $$;
 -- owner, or an admin issuing within their scope and never about owners.
 -- The API verifies the signature; clients verify it again.
 create or replace function public.add_membership(p_org uuid, p_user uuid, p_role text, p_scope text[],
-  p_issued_at_ns bigint, p_signature bytea) returns void
+  p_issued_at_us bigint, p_signature bytea) returns void
 language plpgsql security definer set search_path = '' as $$
 declare
   me uuid := private.caller();
@@ -465,8 +465,8 @@ begin
       end if;
     end loop;
   end if;
-  insert into public.membership_certs (org_id, user_id, account_key, role, scope, issued_at_ns, issuer_id, signature)
-  values (p_org, p_user, key, p_role, p_scope, p_issued_at_ns, me, p_signature);
+  insert into public.membership_certs (org_id, user_id, account_key, role, scope, issued_at_us, issuer_id, signature)
+  values (p_org, p_user, key, p_role, p_scope, p_issued_at_us, me, p_signature);
   insert into public.org_members (org_id, user_id, role, scope) values (p_org, p_user, p_role, p_scope)
   on conflict (org_id, user_id) do update set role = excluded.role, scope = excluded.scope, updated_at = now();
 
@@ -641,7 +641,7 @@ language sql stable security definer set search_path = '' as $$
     -- Writers' and wrappers' device certificates, to check signatures.
     'devices', (select coalesce(jsonb_agg(distinct jsonb_build_object(
         'user_id', d.user_id, 'id', d.id, 'kind', d.kind, 'age_recipient', d.age_recipient,
-        'signing_key', encode(d.signing_key, 'base64'), 'created_at_ns', d.created_at_ns,
+        'signing_key', encode(d.signing_key, 'base64'), 'created_at_us', d.created_at_us,
         'signature', encode(d.signature, 'base64'))), '[]')
       from public.devices d where d.signature is not null and (
         exists (select 1 from public.secrets s join public.secret_versions v on v.secret_id = s.id
@@ -676,7 +676,7 @@ grant execute on function public.fetch_environment_for_token(text, uuid) to serv
 -- ---------------------------------------------------------------- machine tokens
 
 create or replace function public.create_machine_token(p_org uuid, p_id text, p_name text, p_age_recipient text,
-  p_scope text[], p_created_at_ns bigint, p_signature bytea, p_secret_hash bytea, p_expires_at timestamptz) returns void
+  p_scope text[], p_created_at_us bigint, p_signature bytea, p_secret_hash bytea, p_expires_at timestamptz) returns void
 language plpgsql security definer set search_path = '' as $$
 declare me uuid := private.caller();
 begin
@@ -686,8 +686,8 @@ begin
   if p_expires_at > now() + interval '1 year' then
     raise exception 'tokens expire within a year' using errcode = '22023';
   end if;
-  insert into public.machine_tokens (id, org_id, created_by, name, age_recipient, scope, created_at_ns, signature, secret_hash, expires_at)
-  values (p_id, p_org, me, p_name, p_age_recipient, p_scope, p_created_at_ns, p_signature, p_secret_hash, p_expires_at);
+  insert into public.machine_tokens (id, org_id, created_by, name, age_recipient, scope, created_at_us, signature, secret_hash, expires_at)
+  values (p_id, p_org, me, p_name, p_age_recipient, p_scope, p_created_at_us, p_signature, p_secret_hash, p_expires_at);
   perform private.audit(p_org, 'token.create', p_id, jsonb_build_object('scope', p_scope, 'expires_at', p_expires_at));
 end $$;
 
