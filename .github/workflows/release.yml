@@ -50,7 +50,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p build/root/usr/local/bin out
           for arch in amd64 arm64; do
-            GOOS=darwin GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "build/envrune_$arch" ./cmd/envrune
+            GOOS=darwin GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/YagoLagrottiBracco/envrune/internal/cli.Version=$VERSION" -o "build/envrune_$arch" ./cmd/envrune
           done
           lipo -create -output build/root/usr/local/bin/envrune build/envrune_amd64 build/envrune_arm64
           chmod 0755 build/root/usr/local/bin/envrune

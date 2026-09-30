@@ -15,7 +15,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w
+      - -s -w -X github.com/YagoLagrottiBracco/envrune/internal/cli.Version={{.Version}}
     goos:
       - linux
       - darwin

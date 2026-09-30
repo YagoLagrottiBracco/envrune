@@ -71,6 +71,26 @@ This is risk reduction, not an absolute guarantee. In particular, EnvRune does
 not protect a live secret from root, a hostile administrator, or malicious code
 already running as the same user with sufficient access.
 
+## Output masking, guard, and scan
+
+`run`, named commands, `up`, and `mcp` replace vault values in a child's
+output with `****`; `guard` and `scan` search diffs, files, and history for
+them. All of them compare in memory and store no hashes of values. Values
+shorter than six bytes are not matched. Masking prevents accidents; a program
+that wants to leak a value can transform it first. [Output
+redaction](redaction.md) records the design and its limits.
+
+## AI agents
+
+`envrune mcp` gives an AI agent tools that run the commands under
+`commands:` and return masked output, and no tool that returns a value. It
+never prompts: it unlocks through the agent, the keychain, or
+`ENVRUNE_PASSWORD`, checked on every call. Arbitrary commands and extra
+arguments are off unless the user starts it with `--allow-any-command` or
+`--allow-args`. It does not contain an agent that can edit the code those
+commands run, or run `envrune` in a shell while the vault is unlocked; see
+[AI agents](mcp.md) for how to deny those paths.
+
 ## Input
 
 Secret prompts never echo. If more input is already waiting after a secret

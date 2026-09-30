@@ -20,6 +20,12 @@ All notable changes to EnvRune are listed here. The format follows
 - **`envrune guard`** blocks a commit whose staged changes add a vault or team
   value, naming the file, line, and reference. `guard install` adds it as a
   pre-commit hook; with the vault locked it warns, or blocks with `--strict`.
+- **`envrune mcp`** is an MCP server for AI agents (Claude Code, Cursor, Copilot)
+  with tools that list environments, variables, and commands, run the commands
+  under `commands:` with output masked against every vault value, and run
+  `doctor`. No tool returns a value; it never prompts, re-checks the unlock on
+  every call, stops commands at a timeout, and allows extra arguments or any
+  command only with `--allow-args` or `--allow-any-command`.
 - **`envrune scan`** finds vault and team values in files, logs, and every
   commit on every branch, and exits with code 1 when it finds one.
 - **`envrune migrate`** moves the `.env` files of a project, or of its sibling

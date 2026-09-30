@@ -60,6 +60,9 @@ Leaks
   guard install|uninstall     Run guard before every commit in this repository
   scan [path...] [--no-history]  Find vault values in files and Git history
 
+AI agents
+  mcp [--allow-args]          MCP server: run named commands with masked output
+
 Unlocking
   unlock [--ttl 8h]           Keep the vault unlocked for new terminals
   lock                        Forget the unlocked key now
@@ -83,7 +86,7 @@ ENVRUNE_IDENTITY, NO_COLOR.
 
 var builtinCommands = map[string]bool{
 	"help": true, "init": true, "project": true, "shell": true, "lock": true, "status": true,
-	"keychain": true, "recover": true, "backup": true, "restore": true, "hook": true, "guard": true,
+	"keychain": true, "recover": true, "backup": true, "restore": true, "hook": true, "guard": true, "mcp": true,
 }
 
 func isBuiltin(name string) bool { return builtinCommands[name] || isSessionCommand(name) }
@@ -128,6 +131,8 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 		return executeHook(args[1:], stdout, stderr)
 	case "guard":
 		return executeGuard(args[1:], stdout, stderr)
+	case "mcp":
+		return executeMCP(args[1:], stderr)
 	case "diff", "types":
 		// Reads only envrune.yml, so it needs no unlock.
 		return Workspace{Stdout: stdout, Stderr: stderr}.Execute(args)
