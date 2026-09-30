@@ -47,6 +47,6 @@ export const GET = handle(async (request) => {
     registered: profile.data !== null,
     account_key: profile.data ? base64(profile.data.account_key) : null,
     recovery_backup: profile.data ? base64(profile.data.recovery_backup) : null,
-    devices: devices.data.map(deviceJson),
+    devices: devices.data.map((d) => deviceJson(d, true)),
   });
 });

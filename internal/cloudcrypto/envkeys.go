@@ -65,8 +65,14 @@ func (d *Device) Wrap(k *EnvironmentKey, recipient *RecipientCertificate) (*Wrap
 	if err := w.Close(); err != nil {
 		return nil, err
 	}
+	// A machine token belongs to no user; its certificate names the admin
+	// who created it, but the key is the token's.
+	recipientUser := recipient.UserID
+	if recipient.Kind == KindMachine {
+		recipientUser = ""
+	}
 	wrapped := &WrappedKey{OrgID: k.OrgID, ProjectID: k.ProjectID, EnvironmentID: k.EnvironmentID, Epoch: k.Epoch,
-		RecipientUserID: recipient.UserID, RecipientID: recipient.RecipientID, Wrapped: buf.Bytes(),
+		RecipientUserID: recipientUser, RecipientID: recipient.RecipientID, Wrapped: buf.Bytes(),
 		WrapperUserID: d.UserID, WrapperDeviceID: d.DeviceID}
 	wrapped.Signature = d.sign(wrapped.signed())
 	return wrapped, nil

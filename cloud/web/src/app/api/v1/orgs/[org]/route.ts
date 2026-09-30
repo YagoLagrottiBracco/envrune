@@ -46,7 +46,7 @@ async function snapshot(client: SupabaseClient, org: { id: string; slug: string;
     certificates: certs.map(certJson),
     members,
     accounts: profiles.map((p) => ({ user_id: p.user_id, account_key: base64(p.account_key) })),
-    devices: devices.map(deviceJson),
+    devices: devices.map((d) => deviceJson(d)),
     projects,
     tokens: tokens.map(tokenJson),
     rotation: tasks,

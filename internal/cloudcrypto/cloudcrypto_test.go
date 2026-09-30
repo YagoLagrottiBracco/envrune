@@ -160,7 +160,7 @@ func TestServerCannotAddARecipientOfItsOwn(t *testing.T) {
 
 func TestMachineTokensStayInTheirScope(t *testing.T) {
 	o := newOrg(t)
-	token := must(NewMachineToken())
+	token := must(NewMachineToken("acme", o.trust.Roots))
 	cert := o.bob.CertifyMachine(token.ID, token.Identity.Recipient().String(), []string{"shop/production"})
 	if err := o.trust.VerifyRecipient(o.certs, cert, "shop", "production"); err != nil {
 		t.Fatalf("the token was rejected: %v", err)
@@ -174,8 +174,17 @@ func TestMachineTokensStayInTheirScope(t *testing.T) {
 	}
 
 	parsed := must(ParseMachineToken(token.String()))
-	if parsed.ID != token.ID || !TokenSecretMatches(parsed.Secret, token.SecretHash()) || parsed.Identity.String() != token.Identity.String() {
+	if parsed.ID != token.ID || !TokenSecretMatches(parsed.Secret, token.SecretHash()) || parsed.Identity.String() != token.Identity.String() ||
+		parsed.OrgID != "acme" || !parsed.Roots["alice"].Equal(o.alice.Public) {
 		t.Fatal("the token did not round-trip")
+	}
+	// The pinned roots let a CI job verify the chain on its own.
+	if _, err := parsed.Trust().Verify(o.certs, "carol"); err != nil {
+		t.Fatalf("the token's trust rejected a real member: %v", err)
+	}
+	withoutRoots := strings.Join(strings.Split(token.String(), ".")[:3], ".")
+	if _, err := ParseMachineToken(withoutRoots); err == nil {
+		t.Fatal("a token without roots was accepted")
 	}
 	if TokenSecretMatches([]byte("wrong"), token.SecretHash()) {
 		t.Fatal("a wrong secret matched")

@@ -226,6 +226,29 @@ func (s *Session) Reveal(projectPath, rawReference string) ([]byte, error) {
 	return value, nil
 }
 
+// CloudState returns this device's EnvRune Cloud state, or nil.
+func (s *Session) CloudState() ([]byte, error) {
+	var out []byte
+	err := s.read(func(v *vault.Opened) error {
+		out = v.CloudState()
+		return nil
+	})
+	return out, err
+}
+
+// UpdateCloudState replaces the Cloud state with change(current), merged on
+// top of what other processes wrote, like every vault write.
+func (s *Session) UpdateCloudState(change func([]byte) ([]byte, error)) error {
+	return s.mutate(func(v *vault.Opened) error {
+		next, err := change(v.CloudState())
+		if err != nil {
+			return err
+		}
+		v.SetCloudState(next)
+		return nil
+	})
+}
+
 // Secrets returns every value the session can read, named by reference, so
 // guard and scan can look for them. Team values from the project's team file
 // are included when projectPath is set and this user is a member. The caller

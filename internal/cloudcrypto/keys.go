@@ -150,3 +150,27 @@ func Fingerprint(parts ...[]byte) string {
 	}
 	return strings.Join(groups, "-")
 }
+
+// Seed returns the account's private key seed, for the local vault.
+func (a *Account) Seed() []byte { return append([]byte(nil), a.private.Seed()...) }
+
+// AccountFromSeed rebuilds an account from Seed.
+func AccountFromSeed(userID string, seed []byte) (*Account, error) {
+	if len(seed) != ed25519.SeedSize {
+		return nil, ErrMalformed
+	}
+	private := ed25519.NewKeyFromSeed(seed)
+	return &Account{UserID: userID, Public: private.Public().(ed25519.PublicKey), private: private}, nil
+}
+
+// DeviceFromKeys rebuilds a device from its age identity and signing seed.
+func DeviceFromKeys(userID, deviceID, identity string, signingSeed []byte) (*Device, error) {
+	id, err := age.ParseX25519Identity(identity)
+	if err != nil || len(signingSeed) != ed25519.SeedSize {
+		return nil, ErrMalformed
+	}
+	return &Device{UserID: userID, DeviceID: deviceID, Identity: id, Signing: ed25519.NewKeyFromSeed(signingSeed)}, nil
+}
+
+// SigningSeed returns the device's signing key seed, for the local vault.
+func (d *Device) SigningSeed() []byte { return append([]byte(nil), d.Signing.Seed()...) }

@@ -98,7 +98,7 @@ select throws_ok(format($$ select public.put_wrapped_keys(%L, 1, 'carol-laptop',
 select pg_temp.become('00000000-0000-0000-0000-00000000000d');
 select throws_ok(format($$ select public.fetch_environment(%L, 'dave-laptop') $$, :'env'), '42501', null,
   'a pending device cannot fetch');
-select public.approve_device('dave-laptop', 2, pg_temp.sig());
+select public.approve_device('dave-laptop', 2, pg_temp.sig(), null);
 select is(jsonb_array_length(public.fetch_environment(:'env', 'dave-laptop')->'secrets'), 1, 'a consumer fetches the values');
 select is(jsonb_array_length(public.fetch_environment(:'env', 'dave-laptop')->'wrapped_keys'), 1, 'a consumer gets their wrapped key');
 select throws_ok(format($$ select public.put_secret_version(%L, 'stripe-key', 2, 1, decode(repeat('00', 24), 'hex'), 'x', 'dave-laptop', pg_temp.sig()) $$, :'env'),

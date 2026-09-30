@@ -4,8 +4,10 @@ import { base64 } from "./api";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export function deviceJson(d: any) {
+/** A device; its wrapped account key only for the device owner (own = true). */
+export function deviceJson(d: any, own = false) {
   return {
+    ...(own ? { account_key_wrapped: base64(d.account_key_wrapped ?? null) } : {}),
     user_id: d.user_id,
     id: d.id,
     kind: d.kind,

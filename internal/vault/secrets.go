@@ -18,6 +18,9 @@ type payload struct {
 	Meta     map[string]*SecretMeta `json:"meta,omitempty"`
 	// Identity is the X25519 private key that opens shared team files.
 	Identity []byte `json:"identity,omitempty"`
+	// Cloud is the EnvRune Cloud state of this device (internal/cloud), kept
+	// encrypted with everything else.
+	Cloud []byte `json:"cloud,omitempty"`
 }
 
 // SecretMeta describes one secret. History holds earlier values, newest
@@ -61,6 +64,7 @@ func (p *payload) wipe() {
 		}
 	}
 	wipe(p.Identity)
+	wipe(p.Cloud)
 	clear(p.Secrets)
 	clear(p.Meta)
 }
@@ -213,4 +217,13 @@ func (v *Opened) Identity() []byte { return append([]byte(nil), v.data.Identity.
 func (v *Opened) SetIdentity(identity []byte) {
 	wipe(v.data.Identity)
 	v.data.Identity = append([]byte(nil), identity...)
+}
+
+// CloudState returns a copy of the EnvRune Cloud state; nil when there is none.
+func (v *Opened) CloudState() []byte { return append([]byte(nil), v.data.Cloud...) }
+
+// SetCloudState replaces the EnvRune Cloud state. Call it inside Update.
+func (v *Opened) SetCloudState(state []byte) {
+	wipe(v.data.Cloud)
+	v.data.Cloud = append([]byte(nil), state...)
 }

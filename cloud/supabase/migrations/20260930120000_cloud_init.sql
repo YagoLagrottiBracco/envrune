@@ -79,6 +79,9 @@ create table public.devices (
   signing_key   bytea check (signing_key is null or length(signing_key) = 32),
   created_at_us bigint not null,
   signature     bytea check (signature is null or length(signature) = 64),
+  -- The account private key, encrypted with age to this device by the
+  -- trusted device that approved it, so the new device can sign too.
+  account_key_wrapped bytea,
   revoked_at    timestamptz,
   registered_at timestamptz not null default now(),
   primary key (user_id, id),
@@ -382,12 +385,14 @@ begin
   values (me, p_id, 'device', p_name, p_age_recipient, p_signing_key, p_created_at_us, p_signature);
 end $$;
 
--- A trusted device of the caller certifies a pending one.
-create or replace function public.approve_device(p_id text, p_created_at_us bigint, p_signature bytea) returns void
+-- A trusted device of the caller certifies a pending one, and hands it the
+-- account key encrypted to it.
+create or replace function public.approve_device(p_id text, p_created_at_us bigint, p_signature bytea,
+  p_account_key_wrapped bytea) returns void
 language plpgsql security definer set search_path = '' as $$
 declare me uuid := private.caller();
 begin
-  update public.devices set created_at_us = p_created_at_us, signature = p_signature
+  update public.devices set created_at_us = p_created_at_us, signature = p_signature, account_key_wrapped = p_account_key_wrapped
   where user_id = me and id = p_id and kind = 'device' and signature is null and revoked_at is null;
   if not found then
     raise exception 'no pending device % for this account', p_id using errcode = 'P0002';
@@ -657,7 +662,17 @@ language sql stable security definer set search_path = '' as $$
         exists (select 1 from public.secrets s join public.secret_versions v on v.secret_id = s.id
                 where s.environment_id = p_env and v.writer_user_id = d.user_id and v.writer_device_id = d.id)
         or exists (select 1 from public.wrapped_keys w
-                   where w.environment_id = p_env and w.wrapper_user_id = d.user_id and w.wrapper_device_id = d.id))));
+                   where w.environment_id = p_env and w.wrapper_user_id = d.user_id and w.wrapper_device_id = d.id))),
+    -- The organization's ids and membership certificates, so a machine
+    -- token, which has no snapshot, can verify writers and wrappers.
+    'ids', (select jsonb_build_object('org_id', p.org_id, 'project_id', p.id)
+            from public.environments e join public.projects p on p.id = e.project_id where e.id = p_env),
+    'certificates', (select coalesce(jsonb_agg(jsonb_build_object(
+        'org_id', c.org_id, 'user_id', c.user_id, 'account_key', encode(c.account_key, 'base64'), 'role', c.role,
+        'scope', c.scope, 'issued_at_us', c.issued_at_us, 'issuer_id', c.issuer_id,
+        'signature', encode(c.signature, 'base64')) order by c.id), '[]')
+      from public.membership_certs c join public.projects p on p.org_id = c.org_id
+      join public.environments e on e.project_id = p.id where e.id = p_env));
 $$;
 
 -- For the API only, after it checked the token's secret against its hash.
