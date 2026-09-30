@@ -9,6 +9,8 @@
 </p>
 
 <p align="center">
+  <a href="docs/why-envrune.md">Why EnvRune</a>
+  &nbsp;•&nbsp;
   <a href="#get-started">Get started</a>
   &nbsp;•&nbsp;
   <a href="#documentation">Documentation</a>
@@ -197,6 +199,7 @@ output is already plain.
 
 | Guide | Read it when you want to… |
 | --- | --- |
+| [Why EnvRune](docs/why-envrune.md) | Migrate in two minutes, and an honest comparison with dotenv, 1Password CLI, Doppler, and Infisical. |
 | [Getting started](docs/getting-started.md) | Build EnvRune, create a vault, and connect a first project. |
 | [Moving from .env files](docs/migrate.md) | Import every `.env` file of a project, or of several, with `envrune migrate`. |
 | [Daily workflow](docs/daily-workflow.md) | Unlock once, use a default environment, named commands, `up`, `copy`, `doctor`, rotation, and recovery. |

@@ -20,6 +20,10 @@ All notable changes to EnvRune are listed here. The format follows
 - **`envrune guard`** blocks a commit whose staged changes add a vault or team
   value, naming the file, line, and reference. `guard install` adds it as a
   pre-commit hook; with the vault locked it warns, or blocks with `--strict`.
+- **docs/why-envrune.md**: a two-minute migration, a comparison with dotenv,
+  the 1Password CLI, Doppler, and Infisical with sources, and when to choose
+  something else; **docs/demo-script.md**: a script and VHS tape for the demo
+  GIF.
 - **VS Code extension** in `packages/vscode` (not yet on the Marketplace): a
   status bar item with the unlock state, a view of projects, environments,
   variables, and commands, warnings on unlinked `process.env` and `os.environ`
