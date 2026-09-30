@@ -20,6 +20,8 @@ All notable changes to EnvRune are listed here. The format follows
 - **`envrune guard`** blocks a commit whose staged changes add a vault or team
   value, naming the file, line, and reference. `guard install` adds it as a
   pre-commit hook; with the vault locked it warns, or blocks with `--strict`.
+- **`envrune scan`** finds vault and team values in files, logs, and every
+  commit on every branch, and exits with code 1 when it finds one.
 - **Output masking:** `run`, named commands, and `up` replace any value a
   child prints with `****`, including URL-encoded and base64 forms and values
   split across writes. In a terminal the child gets a pseudo-terminal (pty on

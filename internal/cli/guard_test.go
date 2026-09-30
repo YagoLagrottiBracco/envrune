@@ -156,3 +156,64 @@ func TestGuardInstallWritesAHookAndRefusesToReplaceAnother(t *testing.T) {
 		t.Fatal("install replaced a hook it did not write")
 	}
 }
+
+func TestScanFindsValuesInFilesAndHistory(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	f := newFixture(t, baseConfig)
+	if err := f.session.Set("stripe.key", []byte("sk_live_scan_value")); err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(t.TempDir(), "repo")
+	git := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	git("config", "user.email", "t@example.com")
+	git("config", "user.name", "Tester")
+	git("config", "commit.gpgsign", "false")
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(repo, name)), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, name), []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("config.py", "A = 1\nKEY = 'sk_live_scan_value'\n")
+	git("add", ".")
+	git("commit", "-q", "-m", "add key")
+	write("config.py", "A = 1\nKEY = os.environ['KEY']\n")
+	git("commit", "-q", "-am", "remove key")
+	write("logs/app.log", "boot\nrequest with sk_live_scan_value\n")
+	write("node_modules/pkg/index.js", "sk_live_scan_value\n")
+
+	if code := f.run("scan", repo); code != 1 {
+		t.Fatalf("scan = %d: %s", code, f.output())
+	}
+	out := f.output()
+	for _, want := range []string{"stripe.key appears in 2 places", "logs/app.log:2", "config.py:2", "Tester"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("scan output misses %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "node_modules") || strings.Contains(out, "scan_value") {
+		t.Fatalf("scan output = %s", out)
+	}
+	if code := f.run("scan", "--no-history", repo); code != 1 || strings.Contains(f.output(), "commit ") {
+		t.Fatalf("scan --no-history = %d: %s", code, f.output())
+	}
+	if err := os.Remove(filepath.Join(repo, "logs", "app.log")); err != nil {
+		t.Fatal(err)
+	}
+	if code := f.run("scan", "--no-history", repo); code != 0 || !strings.Contains(f.output(), "No vault values found") {
+		t.Fatalf("clean scan = %d: %s", code, f.output())
+	}
+}

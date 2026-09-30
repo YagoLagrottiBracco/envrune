@@ -53,6 +53,7 @@ Projects
 Leaks
   guard [--strict]            Block staged changes that contain vault values
   guard install|uninstall     Run guard before every commit in this repository
+  scan [path...] [--no-history]  Find vault values in files and Git history
 
 Unlocking
   unlock [--ttl 8h]           Keep the vault unlocked for new terminals

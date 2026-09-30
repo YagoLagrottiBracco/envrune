@@ -289,3 +289,58 @@ func wipe(b []byte) {
 		b[i] = 0
 	}
 }
+
+// maxLen returns the length of the longest value looked for.
+func (m *Matcher) maxLen() int {
+	if len(m.patterns) == 0 {
+		return 0
+	}
+	return len(m.patterns[0].value)
+}
+
+// scanChunk is how much Scan reads at a time.
+const scanChunk = 1 << 20
+
+// Scan reads r to the end and calls found for each value in it, with the
+// 1-based line the value starts on. It holds at most one chunk and the
+// longest value in memory, so it suits large files such as logs.
+func (m *Matcher) Scan(r io.Reader, found func(name string, line int)) error {
+	if m.Empty() {
+		_, err := io.Copy(io.Discard, r)
+		return err
+	}
+	keep := m.maxLen() - 1
+	window := make([]byte, 0, scanChunk+keep)
+	defer func() { wipe(window[:cap(window)]) }()
+	line := 1 // line number at the start of window
+	for {
+		n, err := io.ReadFull(r, window[len(window):len(window)+scanChunk])
+		window = window[:len(window)+n]
+		last := err == io.EOF || err == io.ErrUnexpectedEOF
+		if err != nil && !last {
+			return err
+		}
+		// A value that starts in the last keep bytes may continue in the
+		// next chunk, so it is reported from the next window.
+		boundary := len(window)
+		if !last {
+			boundary = max(0, len(window)-keep)
+		}
+		counted, lineAt := 0, line
+		for _, match := range m.Find(window) {
+			if match.Start >= boundary {
+				break
+			}
+			lineAt += bytes.Count(window[counted:match.Start], []byte("\n"))
+			counted = match.Start
+			found(match.Name, lineAt)
+		}
+		if last {
+			return nil
+		}
+		line += bytes.Count(window[:boundary], []byte("\n"))
+		rest := copy(window, window[boundary:])
+		wipe(window[rest:len(window)])
+		window = window[:rest]
+	}
+}

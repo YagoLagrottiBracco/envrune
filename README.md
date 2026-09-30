@@ -177,6 +177,7 @@ turning it into a secret-bearing file.
 | `rotate` / `rollback` / `history` | Replace a value and keep the previous ones. |
 | `doctor` | Find missing references, forgotten `.env` files, and pasted values. |
 | `guard install` | Block commits that stage a vault value. |
+| `scan [path...]` | Find vault values already in files, logs, and Git history. |
 | `team …` / `push github` | Share secrets through `envrune.team.json`; feed CI. |
 | `recover` / `backup` / `restore` | Reset a forgotten password with the recovery key; keep encrypted copies. |
 | `export [--env e] [--output path] [--force]` | Deliberately create a plaintext dotenv file after confirmation. |
@@ -194,7 +195,7 @@ output is already plain.
 | [Daily workflow](docs/daily-workflow.md) | Unlock once, use a default environment, named commands, `up`, `copy`, `doctor`, rotation, and recovery. |
 | [Advanced usage](docs/advanced-usage.md) | Work with environments, imports, exports, generated values, and sessions. |
 | [Integrations](docs/integrations.md) | Use EnvRune from VS Code, Docker Compose, and a direnv-style terminal hook. |
-| [Keeping values out of Git](docs/guard.md) | Block commits that contain vault values. |
+| [Keeping values out of Git](docs/guard.md) | Block commits that contain vault values, and find old leaks. |
 | [Teams and CI](docs/teams-and-ci.md) | Share secrets with a team file and give pipelines access. |
 | [Windows and WSL](docs/wsl.md) | Keep one vault or two across Windows and WSL. |
 | [Local dashboard](docs/local-ui.md) | Understand the loopback UI, its token flow, and its limits. |

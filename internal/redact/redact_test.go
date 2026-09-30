@@ -185,3 +185,26 @@ func BenchmarkWriter(b *testing.B) {
 	}
 	_ = w.Close()
 }
+
+func TestScanFindsValuesAcrossChunksWithLineNumbers(t *testing.T) {
+	m := NewMatcher([]Secret{{Name: "db.url", Value: []byte("postgres://user:pw@db/app")}})
+	var text strings.Builder
+	for text.Len() < scanChunk-10 {
+		text.WriteString("ordinary log line\n")
+	}
+	lines := strings.Count(text.String(), "\n")
+	text.WriteString("connect postgres://user:pw@db/app\n") // straddles the first chunk
+	text.WriteString("ok\npostgres://user:pw@db/app\n")
+	type hit struct {
+		name string
+		line int
+	}
+	var got []hit
+	if err := m.Scan(strings.NewReader(text.String()), func(name string, line int) { got = append(got, hit{name, line}) }); err != nil {
+		t.Fatal(err)
+	}
+	want := []hit{{"db.url", lines + 1}, {"db.url", lines + 3}}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("Scan() = %v, want %v", got, want)
+	}
+}
