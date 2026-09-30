@@ -438,3 +438,31 @@ func TestSetupGuidesThroughEachVariable(t *testing.T) {
 		t.Fatalf("second setup = %d:\n%s", code, f.output())
 	}
 }
+
+func TestDiffComparesEnvironmentsByName(t *testing.T) {
+	config := `version: 1
+project: shop
+environments:
+  development:
+    DATABASE_URL: shop.db.dev
+    STRIPE_KEY: shop.stripe.test
+    DEBUG_TOOLBAR: shop.debug
+  production:
+    DATABASE_URL: shop.db.prod
+    STRIPE_KEY: shop.stripe.test
+    SENTRY_DSN: shop.sentry
+`
+	f := newFixture(t, config)
+	if code := f.run("diff", "development", "production"); code != 1 {
+		t.Fatalf("diff = %d:\n%s", code, f.output())
+	}
+	out := f.output()
+	for _, want := range []string{"Only in development (1):\n  DEBUG_TOOLBAR", "Only in production (1):\n  SENTRY_DSN", "STRIPE_KEY → shop.stripe.test", "share 1 reference"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("diff output misses %q:\n%s", want, out)
+		}
+	}
+	if code := f.run("diff", "development", "staging"); code == 0 || !strings.Contains(f.output(), `"staging" does not exist; available: development, production`) {
+		t.Fatalf("diff with unknown env = %d:\n%s", code, f.output())
+	}
+}

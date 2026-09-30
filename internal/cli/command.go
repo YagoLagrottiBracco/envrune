@@ -44,6 +44,7 @@ Projects
   link <VAR> <reference> [--env e]  Bind a variable; offers to create the secret
   setup [--env e]             Walk through the variables documented in envrune.yml
   usage <reference>           Show which projects use a reference
+  diff <env> <env>            Compare the variables of two environments
   run [--env e] [--no-redact] [--] <command>
                               Run a command; values it prints show as ****
   <name> [args]               Run a command defined under commands: in envrune.yml
@@ -124,6 +125,9 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 		return executeHook(args[1:], stdout, stderr)
 	case "guard":
 		return executeGuard(args[1:], stdout, stderr)
+	case "diff":
+		// Reads only envrune.yml, so it needs no unlock.
+		return Workspace{Stdout: stdout, Stderr: stderr}.Execute(args)
 	case "__project-root":
 		return projectRoot(stdout)
 	case "team":

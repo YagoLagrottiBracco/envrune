@@ -30,6 +30,27 @@ link PAYMENT_GATEWAY_TOKEN payments.production --env production
 Use `list` to view references and `usage payments.production` to see their
 project, environment, and variable bindings. Neither command prints a value.
 
+### Compare two environments
+
+`envrune diff` lists the variables one environment defines and the other
+does not, and the variables both point at the same reference. It reads only
+`envrune.yml`, so it needs no unlock:
+
+```text
+$ envrune diff development production
+Only in development (1):
+  DEBUG_TOOLBAR
+Only in production (1):
+  SENTRY_DSN
+Same reference in both (1):
+  STRIPE_KEY → shop.stripe.test
+[WARNING] development and production share 1 reference. That is fine for values that do not differ, but not for credentials that should be separate.
+[ERROR] development and production define different variables. Link the missing ones with `envrune link <VAR> <reference> --env <environment>`.
+```
+
+It exits with code 1 when the environments define different variables, so
+it can run in CI.
+
 ## Run one process with an environment
 
 Run an application from a directory at or below its `envrune.yml`:
