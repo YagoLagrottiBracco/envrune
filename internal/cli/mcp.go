@@ -274,7 +274,7 @@ func (s mcpServer) runCommand(ctx context.Context, _ *mcp.CallToolRequest, in ru
 		environment = command.Env
 	}
 	secrets, dir := command.Target(path)
-	return s.run(ctx, path, secrets, environment, append(words, in.Args...), dir, in.TimeoutSeconds)
+	return s.run(ctx, path, secrets, environment, append(words, in.Args...), dir, in.TimeoutSeconds, false)
 }
 
 func (s mcpServer) runAnyCommand(ctx context.Context, _ *mcp.CallToolRequest, in runAnyInput) (*mcp.CallToolResult, runResult, error) {
@@ -285,12 +285,13 @@ func (s mcpServer) runAnyCommand(ctx context.Context, _ *mcp.CallToolRequest, in
 	if len(in.Command) == 0 {
 		return nil, runResult{}, errors.New("command is empty")
 	}
-	return s.run(ctx, path, path, in.Environment, in.Command, filepath.Dir(path), in.TimeoutSeconds)
+	return s.run(ctx, path, path, in.Environment, in.Command, filepath.Dir(path), in.TimeoutSeconds, true)
 }
 
 // run starts words with the environment resolved from secretsPath and
-// returns its masked output.
-func (s mcpServer) run(ctx context.Context, projectPath, secretsPath, environment string, words []string, dir string, timeout int) (*mcp.CallToolResult, runResult, error) {
+// returns its masked output. anyCommand tells a command line the agent
+// wrote from one of the project's named commands.
+func (s mcpServer) run(ctx context.Context, projectPath, secretsPath, environment string, words []string, dir string, timeout int, anyCommand bool) (*mcp.CallToolResult, runResult, error) {
 	session, err := s.session()
 	if err != nil {
 		return nil, runResult{}, err
@@ -300,6 +301,11 @@ func (s mcpServer) run(ctx context.Context, projectPath, secretsPath, environmen
 	defer wipePairs(resolved.Pairs)
 	if err != nil {
 		return nil, runResult{}, errors.New(describe(err, "the command's secrets are unavailable"))
+	}
+	// A command line the agent writes can send a value anywhere, and masking
+	// would be all that stands between a consumer's values and the agent.
+	if anyCommand && resolved.Restricted {
+		return nil, runResult{}, errors.New("this environment has cloud values that your role (consumer) may only use through the project's named commands; use run_command")
 	}
 	// Mask every value the user has, not only the ones this command gets.
 	all, err := session.Secrets(projectPath)

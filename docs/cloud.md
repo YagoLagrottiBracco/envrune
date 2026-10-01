@@ -156,7 +156,8 @@ says which one to pull.
 
 A consumer's values reach programs but not the screen: `run` and `up` always
 mask them in output (`--no-redact` is refused), and `export`, `env`, `copy`,
-and `push` refuse to show them. **This prevents accidents, not a determined
+and `push` refuse to show them, and `envrune mcp --allow-any-command` refuses
+to run an agent's own command line with them. **This prevents accidents, not a determined
 consumer**: whoever runs a program with a value can read it on their own
 machine, for example by printing it from the program.
 

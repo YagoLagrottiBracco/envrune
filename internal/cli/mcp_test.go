@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"github.com/YagoLagrottiBracco/envrune/internal/app"
+	"github.com/YagoLagrottiBracco/envrune/internal/cloud"
+	"github.com/YagoLagrottiBracco/envrune/internal/cloudcrypto"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -166,5 +169,43 @@ func TestMCPOffersAnyCommandOnlyWhenAllowed(t *testing.T) {
 	result, raw := f.call(t, allowed, "run_any_command", map[string]any{"command": command})
 	if result.IsError || !strings.Contains(raw, "any ****") {
 		t.Fatalf("run_any_command = %s", raw)
+	}
+}
+
+func TestMCPRefusesAnyCommandWithAConsumersValues(t *testing.T) {
+	f := newMCPFixture(t)
+	config := "version: 1\nproject: shop\ncloud: acme/shop\ndefault_env: production\nenvironments:\n  production:\n    STRIPE_KEY: cloud.stripe-key\n" +
+		"commands:\n  hello: " + echoCommand("hello") + "\n"
+	if err := os.WriteFile(f.projectPath, []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	role := cloudcrypto.RoleConsumer
+	server := f.server
+	server.allowAny = true
+	server.open = func() (*app.Session, error) {
+		session, err := app.OpenSession(f.vaultPath, []byte("fixture-password"))
+		if err != nil {
+			return nil, err
+		}
+		session.UseCloudSource(func(cloud.Path) (map[string][]byte, string, error) {
+			return map[string][]byte{"stripe-key": []byte("sk_live_consumer_value")}, role, nil
+		})
+		return session, nil
+	}
+	command := []string{"sh", "-c", "echo any"}
+	if runtime.GOOS == "windows" {
+		command = []string{"cmd", "/c", "echo any"}
+	}
+	result, raw := f.call(t, server, "run_any_command", map[string]any{"command": command})
+	if !result.IsError || !strings.Contains(raw, "consumer") || strings.Contains(raw, "sk_live_consumer_value") {
+		t.Fatalf("run_any_command for a consumer = %s", raw)
+	}
+	// The project's own commands still run, and a maintainer keeps the tool.
+	if result, raw := f.call(t, server, "run_command", map[string]any{"name": "hello"}); result.IsError {
+		t.Fatalf("run_command for a consumer = %s", raw)
+	}
+	role = cloudcrypto.RoleMaintainer
+	if result, raw := f.call(t, server, "run_any_command", map[string]any{"command": command}); result.IsError {
+		t.Fatalf("run_any_command for a maintainer = %s", raw)
 	}
 }

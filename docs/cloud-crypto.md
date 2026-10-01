@@ -229,7 +229,7 @@ record = { ids, name, version, epoch, nonce, ciphertext, written by device,
 | owner | yes | everything, including deleting projects and changing owners |
 | admin | yes | members, roles, environments, rotation, machine tokens |
 | maintainer | yes | set, rotate, rollback, view values in the CLI |
-| consumer | yes | `run`, `up`, `mcp`: values reach processes, never the screen; no `copy`, `export`, `env`, or reveal; output masking cannot be turned off |
+| consumer | yes | `run`, `up`, `mcp`: values reach processes, never the screen; no `copy`, `export`, `env`, or reveal; output masking cannot be turned off; `mcp --allow-any-command` is refused |
 | auditor | no | metadata and the audit log |
 
 Because a consumer holds the environment key, these limits are enforced by

@@ -30,6 +30,10 @@ No tool returns a value. Specifically:
   arguments to named commands, and `--allow-any-command` adds a
   `run_any_command` tool; both are off by default, and the server says so in
   its tool descriptions when they are on.
+  `run_any_command` refuses an environment with
+  [EnvRune Cloud](cloud.md#consumers) values that you may only use as a
+  consumer: there, masking would be the only thing between the values and
+  the agent.
 - **All output is masked.** The output of `run_command` is masked against
   every value in your vault and in the project's team file, not only the ones
   the command receives, as described in [Output redaction](redaction.md). It
