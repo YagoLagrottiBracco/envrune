@@ -45,6 +45,9 @@ type OrgState struct {
 	// Cache holds the last fetch of each environment, as ciphertext, so
 	// commands work offline.
 	Cache map[string]*CachedEnv `json:"cache,omitempty"` // "project/env"
+	// AuditHead is the newest audit entry this device verified, so a later
+	// export must still hold it.
+	AuditHead *AuditHead `json:"audit_head,omitempty"`
 }
 
 // CachedEnv is one environment as last fetched: ciphertext, keys wrapped

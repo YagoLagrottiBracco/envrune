@@ -104,6 +104,25 @@ encrypted copy in your vault, so commands keep working offline with the last
 synced state. A server that serves an older version than one you have seen
 is refused (`--allow-older` accepts it).
 
+## Audit log
+
+The server records every fetch, write, rotation, membership change, device
+approval, and token use: who, from which device or token, and when. Owners,
+admins, and auditors read it in the panel, or export it:
+
+```sh
+envrune cloud audit export acme --output audit-2026-10.jsonl
+envrune cloud audit verify audit-2026-10.jsonl                    # offline, no vault needed
+envrune cloud audit verify audit-2026-11.jsonl --since audit-2026-10.jsonl
+```
+
+The export is one JSON object per line. `export` and `verify` compute the
+hash chain again, so an entry that was edited, removed, or inserted is
+found. Your device also remembers the last entry it verified, and refuses a
+later export that no longer holds it; `--since` does the same between two
+files. Export regularly and keep the files where the server cannot change
+them: that is what makes rewriting the log detectable.
+
 ## Use cloud secrets in envrune.yml
 
 Link the project to a cloud project with `cloud:`, then reference secrets

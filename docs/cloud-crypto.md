@@ -318,16 +318,36 @@ commands with `--no-redact`. Usage: [cloud.md](cloud.md).
 
 ## Audit log
 
-The API appends an entry for every fetch of ciphertext, every write,
-rotation, membership change, device approval, and token use, with user,
-device or token, IP address, and time. The table accepts inserts only (RLS
-and a trigger that rejects updates and deletes), and each entry stores the
-SHA-256 of the previous entry, so a gap or an edit is detectable when the
-log is exported (`envrune cloud audit export`) and verified.
+The database functions append an entry, in the same transaction, for every
+fetch of ciphertext, every write, rotation, membership change, device
+approval or revocation, and token creation, use, or revocation, with the
+user, the device or token, and the time. The table accepts inserts only (no
+write policy, and triggers that reject updates, deletes, and truncation),
+and each entry stores the SHA-256 of the previous one:
+
+```text
+hash = SHA-256(previous hash ‖ organization id ‖ time (UTC, microseconds) ‖
+               user id ‖ device id ‖ token id ‖ action ‖ target ‖ detail)
+```
+
+Fields are separated by the unit separator (0x1F), and an absent user,
+device, or token is skipped.
+
+`envrune cloud audit export` downloads the log, computes every hash again,
+and refuses a log where an entry was edited, removed, or inserted.
+`envrune cloud audit verify` checks an exported file again, offline.
+
+A chain proves that a log is consistent, not that it is the only one: a
+server could compute a different log from the start. Two checks limit that.
+Each device remembers the last entry it verified and refuses a later export
+that lacks it, and `audit verify --since` checks that a new export still
+holds every entry of an older one. Keep exports somewhere the server cannot
+reach.
 
 What it cannot record: a fetch shows that ciphertext left the server, not
 that it was decrypted, and nothing records what a member does with a value
-already in their cache.
+already in their cache. Entries are written by the server, so they are its
+account of events: unlike values and keys, they carry no device signature.
 
 ## The web panel
 

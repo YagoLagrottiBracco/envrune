@@ -38,7 +38,9 @@ const cloudUsage = `cloud <command>
   rotation <org> [--all]                   List the values someone who left could read
   rotation accept <org/project/env/name>   Record that a value stays as it is
   token create <org> --scope s[,s] [--name n] [--expires 90d]
-  token revoke <id>`
+  token revoke <id>
+  audit export <org> [--output file]       Download the audit log and verify it
+  audit verify <file> [--since older-file] Check an export again, offline`
 
 // cloudTimeout bounds one command's requests; login waits for the browser
 // separately.
@@ -155,6 +157,8 @@ func (w Workspace) cloud(argv []string) int {
 		return w.cloudRotation(rest)
 	case "token":
 		return w.cloudToken(rest)
+	case "audit":
+		return w.cloudAudit(rest)
 	}
 	return w.usageError(cloudUsage)
 }

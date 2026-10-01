@@ -2,12 +2,14 @@ package cloud
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -41,6 +43,8 @@ type fakeServer struct {
 	// env id → "user:<id>" or "token:<id>". Guided rotation starts from it.
 	fetched   map[string]map[string]bool
 	rotations []*fakeRotation
+	audits    map[string][]AuditEntry // org id → its chain
+	auditID   int64
 }
 
 type fakeProfile struct{ key, backup []byte }
@@ -77,7 +81,8 @@ type fakeToken struct {
 
 func newFakeServer(t *testing.T) *fakeServer {
 	f := &fakeServer{t: t, emails: map[string]string{}, profiles: map[string]*fakeProfile{}, members: map[string]map[string]memberJSON{},
-		versions: map[string][]secretJSON{}, fetched: map[string]map[string]bool{}}
+		versions: map[string][]secretJSON{}, fetched: map[string]map[string]bool{},
+		audits: map[string][]AuditEntry{}}
 	mux := http.NewServeMux()
 	route := func(pattern string, h func(user string, r *http.Request) (any, int, error)) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
@@ -123,6 +128,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 	route("POST /api/v1/environments/{env}/rotate", f.postRotate)
 	route("GET /api/v1/machine/environment", f.machineEnvironment)
 	route("PATCH /api/v1/rotation/{task}/items/{secret}", f.patchRotationItem)
+	route("GET /api/v1/orgs/{org}/audit", f.getAudit)
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
 	return f
@@ -300,6 +306,7 @@ func (f *fakeServer) postOrg(user string, r *http.Request) (any, int, error) {
 	o := &fakeOrg{id: "org-" + b.Slug, slug: b.Slug, name: b.Name, roots: []accountKeyJSON{{UserID: user, AccountKey: f.profiles[user].key}}}
 	f.orgs = append(f.orgs, o)
 	f.members[o.id] = map[string]memberJSON{user: {UserID: user, Role: "owner", Scope: []string{"*"}}}
+	f.audit(o.id, user, "org.create", o.slug, `{}`)
 	return map[string]string{"id": o.id}, 201, nil
 }
 
@@ -398,6 +405,8 @@ func (f *fakeServer) postMember(user string, r *http.Request) (any, int, error) 
 	f.certs = append(f.certs, certJSON{OrgID: o.id, UserID: b.UserID, AccountKey: f.profiles[b.UserID].key, Role: b.Role, Scope: b.Scope,
 		IssuedAtUS: b.IssuedAtUS, IssuerID: user, Signature: b.Signature})
 	f.members[o.id][b.UserID] = memberJSON{UserID: b.UserID, Role: b.Role, Scope: b.Scope}
+	scope, _ := json.Marshal(nonNil(b.Scope))
+	f.audit(o.id, user, "member."+b.Role, b.UserID, `{"scope": `+string(scope)+`}`)
 	if b.Role == "removed" {
 		f.wrapped = slices.DeleteFunc(f.wrapped, func(w *fakeWrapped) bool {
 			_, p := f.envInfo(w.env)
@@ -471,6 +480,9 @@ func (f *fakeServer) getEnvironment(user string, r *http.Request) (any, int, err
 	}
 	f.fetches++
 	f.recordFetch(env, "user:"+user)
+	if e, p := f.envInfo(env); e != nil {
+		f.audit(p.org, user, "environment.fetch", p.slug+"/"+e.slug, fmt.Sprintf(`{"epoch": %d}`, e.epoch))
+	}
 	return f.payload(env, func(w wrappedJSON) bool {
 		return w.RecipientUserID != nil && *w.RecipientUserID == user && (w.RecipientID == device || w.RecipientID == "recovery")
 	}), 200, nil
@@ -726,6 +738,51 @@ func (f *fakeServer) patchRotationItem(user string, r *http.Request) (any, int, 
 		return nil, 204, nil
 	}
 	return fail(403, errForbidden)
+}
+
+// ---------------------------------------------------------------- audit
+
+// audit appends to an organization's chain as the database trigger does.
+func (f *fakeServer) audit(org, user, action, target, detail string) {
+	f.auditID++
+	e := AuditEntry{ID: f.auditID, OrgID: org, At: time.Now().UTC().Truncate(time.Microsecond).Format(time.RFC3339Nano),
+		ActorUserID: &user, Action: action, Target: target, Detail: json.RawMessage(detail), DetailText: detail}
+	f.audits[org] = append(f.audits[org], e)
+	f.rechain(org)
+}
+
+// rechain computes every hash of a chain again, as a server rewriting its
+// log would.
+func (f *fakeServer) rechain(org string) {
+	var previous []byte
+	for i := range f.audits[org] {
+		e := &f.audits[org][i]
+		at, _ := time.Parse(time.RFC3339Nano, e.At)
+		text := fmt.Sprintf("%s\x1f%s.%06dZ\x1f%s\x1f%s\x1f%s\x1f%s", e.OrgID, at.Format("2006-01-02T15:04:05"), at.Nanosecond()/1000,
+			*e.ActorUserID, e.Action, e.Target, e.DetailText)
+		sum := sha256.Sum256(append(slices.Clone(previous), text...))
+		e.PrevHash, e.Hash = previous, sum[:]
+		previous = e.Hash
+	}
+}
+
+// getAudit pages two entries at a time, so clients must follow pages.
+func (f *fakeServer) getAudit(user string, r *http.Request) (any, int, error) {
+	o := f.orgBySlug(r.PathValue("org"), user)
+	if o == nil {
+		return fail(404, errNotFound)
+	}
+	out := []AuditEntry{}
+	if !slices.Contains([]string{"owner", "admin", "auditor"}, f.role(o.id, user).Role) {
+		return out, 200, nil
+	}
+	after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
+	for _, e := range f.audits[o.id] {
+		if e.ID > after && len(out) < 2 {
+			out = append(out, e)
+		}
+	}
+	return out, 200, nil
 }
 
 // ---------------------------------------------------------------- clients

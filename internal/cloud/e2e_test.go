@@ -230,4 +230,24 @@ func TestEndToEnd(t *testing.T) {
 	if _, err := bob.Rotate(ctx, org, "shop", "production"); err == nil || errors.As(err, &apiErr) {
 		t.Fatalf("a consumer's rotation was not refused on the device: %v", err)
 	}
+
+	// The audit log's chain, as the database hashed it, verifies on the
+	// device, and tells what happened above.
+	audit := must[*AuditExport](t)(alice.Audit(ctx, org))
+	seen := map[string]bool{}
+	for _, entry := range audit.Entries {
+		seen[entry.Action] = true
+	}
+	for _, action := range []string{"org.create", "member.consumer", "member.removed", "device.approve", "key.share", "secret.write",
+		"secret.reencrypt", "environment.fetch", "environment.rotate", "token.create", "token.revoke", "rotation.accepted"} {
+		if !seen[action] {
+			t.Errorf("the audit log has no %s", action)
+		}
+	}
+	if again := must[*AuditExport](t)(alice.Audit(ctx, org)); again.Previous == nil || again.Previous.ID != audit.Head.ID {
+		t.Fatalf("the second export did not continue the first: %+v", again.Previous)
+	}
+	if _, err := bob.Audit(ctx, org); err == nil {
+		t.Fatal("a consumer read the audit log")
+	}
 }

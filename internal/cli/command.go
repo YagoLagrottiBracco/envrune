@@ -93,6 +93,7 @@ EnvRune Cloud (end-to-end encrypted sharing; run envrune cloud for details)
   cloud set|copy|pull|sync|share|rotate ... Secrets, verified on this device
   cloud rotation <org>        Values someone who left could read, to replace
   cloud token create|revoke   Machine tokens for CI
+  cloud audit export|verify   The audit log, checked for edits and gaps
 
 Environment variables: ENVRUNE_VAULT, ENVRUNE_PASSWORD_FILE, ENVRUNE_PASSWORD,
 ENVRUNE_IDENTITY, ENVRUNE_TOKEN, ENVRUNE_CLOUD_SERVER, NO_COLOR.
@@ -152,6 +153,11 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 	case "diff", "types":
 		// Reads only envrune.yml, so it needs no unlock.
 		return Workspace{Stdout: stdout, Stderr: stderr}.Execute(args)
+	case "cloud":
+		// Checks files only, so it needs no unlock.
+		if len(args) > 2 && args[1] == "audit" && args[2] == "verify" {
+			return Workspace{Stdout: stdout, Stderr: stderr}.Execute(args)
+		}
 	case "__project-root":
 		return projectRoot(stdout)
 	case "team":

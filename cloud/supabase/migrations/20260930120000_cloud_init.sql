@@ -390,13 +390,16 @@ end $$;
 create or replace function public.approve_device(p_id text, p_created_at_us bigint, p_signature bytea,
   p_account_key_wrapped bytea) returns void
 language plpgsql security definer set search_path = '' as $$
-declare me uuid := private.caller();
+declare me uuid := private.caller(); o uuid;
 begin
   update public.devices set created_at_us = p_created_at_us, signature = p_signature, account_key_wrapped = p_account_key_wrapped
   where user_id = me and id = p_id and kind = 'device' and signature is null and revoked_at is null;
   if not found then
     raise exception 'no pending device % for this account', p_id using errcode = 'P0002';
   end if;
+  for o in select m.org_id from public.org_members m where m.user_id = me and m.role <> 'removed' loop
+    perform private.audit(o, 'device.approve', p_id);
+  end loop;
 end $$;
 
 create or replace function public.revoke_device(p_id text) returns void
