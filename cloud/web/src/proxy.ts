@@ -1,12 +1,13 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { publishableKey, supabaseUrl } from "@/lib/env";
 
 // Refreshes the panel's session cookie on each navigation, so server
 // components see a valid token. The API does not use cookies; the CLI sends
 // its own access token.
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
-  const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!, {
+  const supabase = createServerClient(supabaseUrl(), publishableKey(), {
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll(toSet, headers) {

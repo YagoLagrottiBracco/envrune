@@ -18,8 +18,11 @@ cd web
 [ -d node_modules ] || npm ci
 export NEXT_PUBLIC_SUPABASE_URL="$API_URL" NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="$PUBLISHABLE_KEY" SUPABASE_SECRET_KEY="$SECRET_KEY"
 node node_modules/next/dist/bin/next build >/dev/null
+# The server the Docker image runs: the standalone build with its assets.
+cp -r public .next/standalone/
+cp -r .next/static .next/standalone/.next/
 log="$(mktemp)"
-node node_modules/next/dist/bin/next start -p "$port" >"$log" 2>&1 &
+PORT="$port" HOSTNAME=127.0.0.1 node .next/standalone/server.js >"$log" 2>&1 &
 server=$!
 trap 'kill "$server" 2>/dev/null || true' EXIT
 for _ in $(seq 60); do

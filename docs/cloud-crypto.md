@@ -45,9 +45,10 @@ Non-goals, stated so they are not assumed:
 | Database, auth, realtime: Supabase (Postgres, Auth, Realtime) | Supabase Cloud | Ciphertext, wrapped keys, public keys, signatures, metadata, audit log. |
 | CLI (`envrune`) | Developer machines, CI | Device private keys and decrypted project keys, inside the local vault. |
 
-Everything is self-hostable: Supabase publishes a Docker setup and Next.js
-builds a standalone server. `docs/self-hosting.md` will describe running both
-on your own infrastructure; the CLI takes the server address from
+Everything is self-hostable: Supabase publishes a Docker setup, and the API
+and panel build into one Docker image that takes its configuration when it
+starts. [self-hosting.md](self-hosting.md) describes running both on your
+own infrastructure; the CLI takes the server address from
 `envrune login --server <url>`.
 
 The CLI talks only to the Next.js API (`/api/v1/...`), never to Supabase

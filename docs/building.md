@@ -50,6 +50,9 @@ cloud/e2e.sh   # the CLI's client against the API and the database, all local
 `cloud/e2e.sh` builds the API in `cloud/web`, starts it next to a local
 Supabase, and runs `go test -tags e2e ./internal/cloud`. CI runs both.
 
+The server's Docker image is built from `cloud/web`; CI builds it and checks
+that it starts. Running it is covered in [self-hosting.md](self-hosting.md).
+
 ## Build a local binary
 
 ```sh
