@@ -17,6 +17,47 @@ All notable changes to EnvRune are listed here. The format follows
 
 ### Added
 
+- **EnvRune Cloud** (optional): share secrets between the members of a team
+  and with CI through a server that stores only ciphertext. There is no
+  hosted service yet; run the server yourself (`docs/self-hosting.md`) and
+  sign in with `envrune login --server <url>`. `docs/cloud.md` is the guide
+  and `docs/cloud-crypto.md` the design, including what a compromised server
+  can and cannot do.
+  - **Accounts and devices:** `envrune cloud init` creates your keys and
+    shows a recovery key once; a new device is approved from one you already
+    use after comparing a fingerprint on both, or restored with
+    `envrune cloud recover`.
+  - **Organizations, projects, environments, and roles** (owner, admin,
+    maintainer, consumer, auditor), with scopes per project and environment.
+    Members are added after the admin compares their account fingerprint,
+    and join with `envrune cloud org join --fingerprint`, which trusts the
+    organization only if it is the one they were told about. Up to two more
+    root holders can be named when an organization is created.
+  - **Secrets:** `cloud set` (or `--generate`), `pull`, `sync`, `copy`, and
+    `cloud.` references in `envrune.yml` after linking it with `cloud:
+    org/project`. Devices verify who wrote each value and who shared each
+    key, refuse an older version than one they have seen, and keep working
+    offline with the last synced copy; an organization can limit for how
+    long (`cloud org set --offline-days`).
+  - **Consumers** can run programs with values but not see them: output
+    stays masked, and `export`, `env`, `copy`, `push`, and
+    `mcp --allow-any-command` refuse. This prevents accidents, not a
+    determined consumer.
+  - **CI:** `cloud token create` makes a machine token scoped to
+    environments, with an expiry. With `ENVRUNE_TOKEN` and
+    `ENVRUNE_CLOUD_SERVER`, `envrune run` needs no vault, and verifies
+    everything against root keys the token carries.
+  - **Leaving:** removing a member starts a new key for every environment
+    they could use and signs again what they had signed. `cloud rotation`
+    then lists every value they fetched until each is replaced or accepted
+    as it is; the panel shows the same list.
+  - **Audit log:** every fetch, write, rotation, and membership change, in a
+    hash chain. `cloud audit export` verifies it and remembers its last
+    entry, and `cloud audit verify` checks an export offline.
+  - **Moving in:** `cloud import-team` moves `envrune.team.json` to a cloud
+    environment and can point `envrune.yml` at it.
+  - **Self-hosting:** a Docker image for the server, configured when it
+    starts, next to a self-hosted or hosted Supabase.
 - **`envrune guard`** blocks a commit whose staged changes add a vault or team
   value, naming the file, line, and reference. `guard install` adds it as a
   pre-commit hook; with the vault locked it warns, or blocks with `--strict`.

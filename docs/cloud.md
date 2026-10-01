@@ -9,6 +9,10 @@ that works, and what a compromised server can and cannot do, is in
 The local vault keeps working as before, offline and without an account.
 The cloud is optional, and a project can mix local, team, and cloud secrets.
 
+There is no hosted EnvRune Cloud yet. Run the server yourself, as
+[self-hosting.md](self-hosting.md) describes, and use its address where this
+guide says `https://cloud.example.com`.
+
 ## Sign in and set up your keys
 
 ```sh

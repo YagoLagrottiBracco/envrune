@@ -46,6 +46,7 @@ needs them directly.
 | **Runtime** | Direct process launch | Inject an environment into one child process with `envrune run`, a named command such as `envrune dev`, or several services at once with `envrune up`. |
 | **Unlock** | One password a day | `envrune unlock --ttl 8h` or the system keychain unlocks every terminal, editor, and hook. |
 | **Teams** | Shared secrets without a server | Commit `envrune.team.json`, encrypted to each member's key; CI gets its own identity. |
+| **Cloud** | End-to-end encrypted sharing, on a server you run | Roles, machine tokens for CI, guided rotation when someone leaves, and an audit log. The server stores ciphertext and never sees a value. Optional: everything else works without it. |
 | **Safety net** | Recovery, history, doctor | A recovery key, encrypted backups, rotation with rollback, and `envrune doctor` for forgotten `.env` files. |
 | **Overview** | Local dashboard | Inspect references and project bindings without exposing values in the browser. |
 
@@ -186,6 +187,7 @@ turning it into a secret-bearing file.
 | `scan [path...]` | Find vault values already in files, logs, and Git history. |
 | `mcp` | MCP server for AI agents: run named commands with masked output, never read values. |
 | `team …` | Share secrets through `envrune.team.json`. |
+| `login` / `cloud …` | Share secrets through an EnvRune Cloud server: members, roles, CI tokens, rotation, audit. |
 | `pull vercel\|1password` / `push github\|vercel` | Copy values between the vault and a service. |
 | `recover` / `backup` / `restore` | Reset a forgotten password with the recovery key; keep encrypted copies. |
 | `export [--env e] [--output path] [--force]` | Deliberately create a plaintext dotenv file after confirmation. |
@@ -212,6 +214,9 @@ output is already plain.
 | [Replacing dotenv in code](docs/packages.md) | Load variables from the vault in Node or Python, like dotenv. |
 | [Pulling and pushing with services](docs/providers.md) | Bring values in from Vercel or 1Password; send them to Vercel or GitHub Actions. |
 | [Teams and CI](docs/teams-and-ci.md) | Share secrets with a team file and give pipelines access. |
+| [EnvRune Cloud](docs/cloud.md) | Share secrets with roles, CI tokens, guided rotation, and an audit log, end-to-end encrypted. |
+| [Self-hosting EnvRune Cloud](docs/self-hosting.md) | Run the server on your own infrastructure with Docker. |
+| [EnvRune Cloud's cryptographic design](docs/cloud-crypto.md) | Check what the server stores, what a compromised one can and cannot do, and how devices verify everything. |
 | [Windows and WSL](docs/wsl.md) | Keep one vault or two across Windows and WSL. |
 | [Local dashboard](docs/local-ui.md) | Understand the loopback UI, its token flow, and its limits. |
 | [Security model](docs/security.md) | Review encryption, the agent and keychain, team files, and operating guidance. |
@@ -233,6 +238,11 @@ output is already plain.
   values out of terminals, screen recordings, and logs by accident. It does
   not stop a program that leaks a value on purpose; see
   [Output redaction](docs/redaction.md).
+- EnvRune Cloud is optional and end-to-end encrypted: values are encrypted
+  and decrypted on your devices, every key a device encrypts to is reached
+  through signatures that end at keys your team pinned, and the server stores
+  ciphertext and names. It can refuse service or see who fetched what; it
+  cannot read a value. See [its design](docs/cloud-crypto.md).
 - The dashboard listens only on loopback, exposes metadata rather than values,
   and uses one-time session material, Host/Origin checks, CSRF protection, and
   no-store headers.

@@ -21,9 +21,9 @@ import (
 )
 
 type e2e struct {
-	t                                 *testing.T
+	t                                *testing.T
 	server, supabase, secret, public string
-	suffix                            string
+	suffix                           string
 }
 
 func newE2E(t *testing.T) *e2e {
