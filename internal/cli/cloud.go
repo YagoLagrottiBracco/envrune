@@ -13,6 +13,7 @@ import (
 	"github.com/YagoLagrottiBracco/envrune/internal/clipboard"
 	"github.com/YagoLagrottiBracco/envrune/internal/cloud"
 	"github.com/YagoLagrottiBracco/envrune/internal/cloudcrypto"
+	"github.com/YagoLagrottiBracco/envrune/internal/generator"
 	"github.com/YagoLagrottiBracco/envrune/internal/vault"
 )
 
@@ -28,11 +29,14 @@ const cloudUsage = `cloud <command>
   project create <org> <project> [--name n]
   env create <org/project/env>
   set <org/project/env/name>               Store a value (asked twice, never echoed)
+  set <org/project/env/name> --generate [--length n]
   copy <org/project/env/name> [--clear-after 30s]
   pull <org/project/env> [--allow-older]   Refresh this device's copy of an environment
   sync                                     Pull every environment you can use
   share <org>                              Wrap your keys for new members, devices, and tokens
   rotate <org/project/env>                 Start a new key epoch
+  rotation <org> [--all]                   List the values someone who left could read
+  rotation accept <org/project/env/name>   Record that a value stays as it is
   token create <org> --scope s[,s] [--name n] [--expires 90d]
   token revoke <id>`
 
@@ -147,6 +151,8 @@ func (w Workspace) cloud(argv []string) int {
 		return w.cloudShare(rest)
 	case "rotate":
 		return w.cloudRotate(rest)
+	case "rotation":
+		return w.cloudRotation(rest)
 	case "token":
 		return w.cloudToken(rest)
 	}
@@ -453,7 +459,7 @@ func (w Workspace) cloudMember(argv []string) int {
 			return w.cloudFail(err)
 		}
 		w.status().Success(fmt.Sprintf("Removed %s. Rotated %d %s: %s.", who, len(rotated), plural(len(rotated), "environment", "environments"), strings.Join(rotated, ", ")))
-		w.status().Warn("They may still know the values they could read. Replace them; the panel lists each one under rotation.")
+		w.status().Warn(fmt.Sprintf("They may still know the values they could read. `envrune cloud rotation %s` lists each one to replace.", org))
 		return 0
 	}
 	return w.usageError(usage)
@@ -496,15 +502,28 @@ func (w Workspace) cloudEnv(argv []string) int {
 }
 
 func (w Workspace) cloudSet(argv []string) int {
-	if len(argv) != 1 {
-		return w.usageError("cloud set <org/project/env/name>")
+	const usage = "cloud set <org/project/env/name> [--generate [--length <n>]]"
+	a, err := parseArgs(argv, []string{"length"}, []string{"generate"}, false)
+	_, hasLength := a.options["length"]
+	if err != nil || len(a.positional) != 1 || (hasLength && !a.flags["generate"]) {
+		return w.usageError(usage)
 	}
-	path, err := cloud.ParsePath(argv[0], true)
+	path, err := cloud.ParsePath(a.positional[0], true)
 	if err != nil {
 		return w.cloudFail(err)
 	}
-	value, err := readConfirmedValue(w.ReadSecret, "Secret value")
-	if err != nil {
+	var value []byte
+	if a.flags["generate"] {
+		length := 32
+		if hasLength {
+			if length, err = strconv.Atoi(a.options["length"]); err != nil {
+				return w.usageError(usage)
+			}
+		}
+		if value, err = generator.New(length); err != nil {
+			return w.fail(err, "The value could not be generated.")
+		}
+	} else if value, err = readConfirmedValue(w.ReadSecret, "Secret value"); err != nil {
 		return w.fail(err, "Secure interactive input is required.")
 	}
 	defer wipe(value)
@@ -513,6 +532,11 @@ func (w Workspace) cloudSet(argv []string) int {
 	version, err := w.cloudService().Set(ctx, path, value)
 	if err != nil {
 		return w.cloudFail(err)
+	}
+	if a.flags["generate"] {
+		w.status().Success(fmt.Sprintf("Stored a new %d-character value as %s, version %d.", len(value), path, version))
+		w.status().Info("Restart what uses it. If a provider issues this value, such as an API key, replace it there and store it with `cloud set` instead.")
+		return 0
 	}
 	w.status().Success(fmt.Sprintf("Stored %s, version %d.", path, version))
 	return 0
@@ -637,6 +661,66 @@ func (w Workspace) cloudRotate(argv []string) int {
 	return 0
 }
 
+// cloudRotation shows and updates guided rotation: what a removed member or
+// a revoked token could read, and which of it still has the value they knew.
+func (w Workspace) cloudRotation(argv []string) int {
+	const usage = "cloud rotation <org> [--all] | accept <org/project/env/name>"
+	a, err := parseArgs(argv, nil, []string{"all"}, false)
+	if err != nil || len(a.positional) == 0 {
+		return w.usageError(usage)
+	}
+	ctx, cancel := cloudContext()
+	defer cancel()
+	s := w.cloudService()
+	if a.positional[0] == "accept" {
+		if len(a.positional) != 2 || a.flags["all"] {
+			return w.usageError(usage)
+		}
+		path, err := cloud.ParsePath(a.positional[1], true)
+		if err != nil {
+			return w.cloudFail(err)
+		}
+		if _, err := s.AcceptRotation(ctx, path); err != nil {
+			return w.cloudFail(err)
+		}
+		w.status().Success(fmt.Sprintf("Recorded that %s keeps its value.", path))
+		w.status().Warn("Whoever left may still know it.")
+		return 0
+	}
+	if len(a.positional) != 1 {
+		return w.usageError(usage)
+	}
+	org := a.positional[0]
+	tasks, err := s.Rotation(ctx, org)
+	if err != nil {
+		return w.cloudFail(err)
+	}
+	pending := 0
+	out := tabwriter.NewWriter(w.Stdout, 0, 0, 2, ' ', 0)
+	for _, t := range tasks {
+		if t.Pending() == 0 && !a.flags["all"] {
+			continue
+		}
+		pending += t.Pending()
+		fmt.Fprintf(out, "%s, %s: %s could read %d %s; %d still to replace.\n", t.Created.Format("2006-01-02"), t.Reason, t.Subject,
+			len(t.Items), plural(len(t.Items), "secret", "secrets"), t.Pending())
+		for _, i := range t.Items {
+			if i.Status == cloud.RotationPending || a.flags["all"] {
+				fmt.Fprintf(out, "  %s\t%s\n", i.Path, i.Status)
+			}
+		}
+	}
+	out.Flush()
+	if pending == 0 {
+		w.status().Success(fmt.Sprintf("Nothing in %s is waiting for a new value.", org))
+		return 0
+	}
+	w.status().Warn(fmt.Sprintf("%d %s still %s a value that someone who left may know.", pending, plural(pending, "secret", "secrets"), plural(pending, "has", "have")))
+	w.status().Info("Replace each at its provider and store it with `envrune cloud set <path>`, or use `--generate` for a value you make up.")
+	w.status().Info("`envrune cloud rotation accept <path>` records that one stays as it is.")
+	return 0
+}
+
 func (w Workspace) cloudToken(argv []string) int {
 	const usage = "cloud token create <org> --scope <s[,s]> [--name <name>] [--expires 90d] | revoke <id>"
 	a, err := parseArgs(argv, []string{"scope", "name", "expires"}, nil, false)
@@ -670,7 +754,7 @@ func (w Workspace) cloudToken(argv []string) int {
 			return w.cloudFail(err)
 		}
 		w.status().Success("Revoked " + a.positional[1] + ".")
-		w.status().Warn("It held environment keys: rotate those environments with `envrune cloud rotate`.")
+		w.status().Warn("It held environment keys: rotate those environments with `envrune cloud rotate`, and replace the values it read (`envrune cloud rotation <org>`).")
 		return 0
 	}
 	return w.usageError(usage)

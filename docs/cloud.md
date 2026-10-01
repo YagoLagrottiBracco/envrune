@@ -62,12 +62,39 @@ A scope is a list of `project/environment`, `project/*`, or `*`.
 Removing a member (`envrune cloud member remove acme <user-id>`) starts a new
 key for every environment they could use, so they cannot read anything
 written afterwards. **They may still know the values they already read**:
-replace those values. The panel lists them under rotation.
+replace those values, as described next.
+
+## After someone leaves: guided rotation
+
+When a member is removed or a machine token revoked, the server lists every
+secret they fetched. The list is in the panel and in the CLI:
+
+```sh
+envrune cloud rotation acme          # what is still waiting; --all shows everything
+```
+
+Each secret waits until one of these happens:
+
+```sh
+envrune cloud set acme/shop/production/stripe-key              # the new value from the provider
+envrune cloud set acme/shop/production/session-key --generate  # a random value, for ones you make up
+envrune cloud rotation accept acme/shop/production/sentry-dsn  # it stays as it is, on the record
+```
+
+Writing a new value marks the secret rotated. A new key
+(`envrune cloud rotate`, which `member remove` runs for you) does **not**:
+it encrypts the same value again, and whoever left still knows it.
+`rotation accept`, and "Keep this value" in the panel, are for owners and
+admins, and are written to the audit log.
+
+The list comes from the server's record of fetches. It shows that ciphertext
+left the server, not what someone did with it.
 
 ## Secrets
 
 ```sh
 envrune cloud set acme/shop/production/stripe-key   # asked twice, never echoed
+envrune cloud set acme/shop/production/session-key --generate   # a random value, never shown
 envrune cloud pull acme/shop/production             # or: envrune cloud sync
 envrune cloud copy acme/shop/production/stripe-key
 ```

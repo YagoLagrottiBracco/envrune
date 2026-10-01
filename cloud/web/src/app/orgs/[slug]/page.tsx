@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { sessionClient } from "@/lib/supabase/server";
+import { acceptRotationItem } from "./actions";
 
 // Metadata only: names, versions, roles, devices, rotation, and the audit
 // log. The panel never decrypts values, and adding a member or approving a
@@ -22,12 +23,13 @@ export default async function OrgPage({ params }: PageProps<"/orgs/[slug]">) {
   const [members, projects, tasks, audit, tokens] = await Promise.all([
     supabase.from("org_members").select("user_id, role, scope").eq("org_id", org.id).order("role"),
     supabase.from("projects").select("slug, name, environments(id, slug, epoch, needs_rotation, secrets(name, current_version))").eq("org_id", org.id).order("slug"),
-    supabase.from("rotation_tasks").select("id, reason, created_at, rotation_items(status, secrets(name, environments(slug, projects(slug))))").eq("org_id", org.id).order("created_at", { ascending: false }),
+    supabase.from("rotation_tasks").select("id, reason, created_at, rotation_items(secret_id, status, secrets(name, environments(slug, projects(slug))))").eq("org_id", org.id).order("created_at", { ascending: false }),
     supabase.from("audit_log").select("id, at, actor_user_id, actor_token_id, action, target").eq("org_id", org.id).order("id", { ascending: false }).limit(50),
     supabase.from("machine_tokens").select("id, name, scope, expires_at, revoked_at, last_used_at").eq("org_id", org.id),
   ]);
   const me = members.data?.find((m) => m.user_id === claims.claims.sub);
   const openTasks = (tasks.data ?? []).filter((t: any) => t.rotation_items.some((i: any) => i.status === "pending"));
+  const canAccept = me?.role === "owner" || me?.role === "admin";
 
   return (
     <main className="mx-auto my-12 max-w-4xl px-4">
@@ -50,17 +52,26 @@ export default async function OrgPage({ params }: PageProps<"/orgs/[slug]">) {
                   {t.reason} on {new Date(t.created_at).toLocaleDateString()}: they could read these {t.rotation_items.length} secrets; {pending.length} still to rotate.
                 </p>
                 <ul className="mt-2 list-disc pl-6 text-sm">
-                  {pending.map((i: any) => (
-                    <li key={`${i.secrets.environments.projects.slug}/${i.secrets.environments.slug}/${i.secrets.name}`}>
-                      <code>
-                        {i.secrets.environments.projects.slug}/{i.secrets.environments.slug}/{i.secrets.name}
-                      </code>
-                    </li>
-                  ))}
+                  {pending.map((i: any) => {
+                    const path = `${org.slug}/${i.secrets.environments.projects.slug}/${i.secrets.environments.slug}/${i.secrets.name}`;
+                    return (
+                      <li key={path} className="mt-1">
+                        <code>{path}</code>
+                        {canAccept && (
+                          <form action={acceptRotationItem.bind(null, org.slug, t.id, i.secret_id)} className="ml-3 inline">
+                            <button type="submit" className="underline">
+                              Keep this value
+                            </button>
+                          </form>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
                 <p className="mt-2 text-sm">
-                  Rotate each with <code>envrune cloud rotate &lt;project&gt;/&lt;environment&gt;/&lt;name&gt;</code>, or at the provider and then{" "}
-                  <code>envrune cloud set</code>. Each new version marks its item done.
+                  Replace each value at its provider and store it with <code>envrune cloud set &lt;path&gt;</code>, or add <code>--generate</code> for a
+                  value you make up. Each new value marks its secret done. A new key (<code>envrune cloud rotate</code>) does not: whoever left still
+                  knows the old value. &ldquo;Keep this value&rdquo; records that a secret stays as it is.
                 </p>
               </div>
             );

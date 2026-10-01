@@ -180,7 +180,15 @@ func TestEndToEnd(t *testing.T) {
 	if rotated := must[[]string](t)(alice.RemoveMember(ctx, org, carolID)); len(rotated) != 1 {
 		t.Fatalf("rotated %v", rotated)
 	}
+	// Guided rotation: carol read the value, and the new epoch only encrypted
+	// it again, so it waits until a new value is written.
+	if tasks := must[[]RotationTask](t)(alice.Rotation(ctx, org)); len(tasks) != 1 || tasks[0].Subject != carolID || tasks[0].Pending() != 1 {
+		t.Fatalf("after the removal, rotation is %+v", tasks)
+	}
 	must[uint64](t)(alice.Set(ctx, prod, []byte("sk_live_2")))
+	if tasks := must[[]RotationTask](t)(alice.Rotation(ctx, org)); tasks[0].Pending() != 0 || tasks[0].Items[0].Status != RotationRotated {
+		t.Fatalf("after the new value, rotation is %+v", tasks)
+	}
 	if _, err := carol.Pull(ctx, env, false); err == nil {
 		t.Fatal("a removed member pulled")
 	}
@@ -195,6 +203,20 @@ func TestEndToEnd(t *testing.T) {
 	ok(t, alice.RevokeToken(ctx, tokenID))
 	if _, err := MachineValues(ctx, nil, e.server, token, env); err == nil {
 		t.Fatal("a revoked token read")
+	}
+	// The token read the value too; an admin may record that it stays.
+	tasks := must[[]RotationTask](t)(alice.Rotation(ctx, org))
+	if len(tasks) != 2 || tasks[1].Subject != "token "+tokenID || tasks[1].Pending() != 1 {
+		t.Fatalf("after the revocation, rotation is %+v", tasks)
+	}
+	if _, err := bob.AcceptRotation(ctx, prod); err == nil {
+		t.Fatal("a consumer accepted a rotation")
+	}
+	if n := must[int](t)(alice.AcceptRotation(ctx, prod)); n != 1 {
+		t.Fatalf("accepted %d items", n)
+	}
+	if tasks := must[[]RotationTask](t)(alice.Rotation(ctx, org)); tasks[1].Pending() != 0 || tasks[1].Items[0].Status != RotationAccepted {
+		t.Fatalf("after accepting, rotation is %+v", tasks)
 	}
 
 	// The organization as a member's CLI verifies it.

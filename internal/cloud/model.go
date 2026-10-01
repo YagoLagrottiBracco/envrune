@@ -128,6 +128,20 @@ type Snapshot struct {
 	Devices      []deviceJSON     `json:"devices"`
 	Projects     []projectJSON    `json:"projects"`
 	Tokens       []tokenJSON      `json:"tokens"`
+	Rotation     []rotationJSON   `json:"rotation"`
+}
+
+// rotationJSON is a guided rotation: the secrets someone who left could read.
+type rotationJSON struct {
+	ID            string  `json:"id"`
+	Reason        string  `json:"reason"`
+	SubjectUserID *string `json:"subject_user_id"`
+	SubjectToken  *string `json:"subject_token"`
+	CreatedAt     string  `json:"created_at"`
+	Items         []struct {
+		SecretID string `json:"secret_id"`
+		Status   string `json:"status"`
+	} `json:"rotation_items"`
 }
 
 func (s *Snapshot) environment(project, env string) (*projectJSON, *environmentJSON, bool) {

@@ -37,6 +37,10 @@ type fakeServer struct {
 	wrapped  []*fakeWrapped
 	tokens   []*fakeToken
 	fetches  int
+	// fetched records who fetched each environment, as the audit log does:
+	// env id → "user:<id>" or "token:<id>". Guided rotation starts from it.
+	fetched   map[string]map[string]bool
+	rotations []*fakeRotation
 }
 
 type fakeProfile struct{ key, backup []byte }
@@ -59,6 +63,11 @@ type fakeWrapped struct {
 	w   wrappedJSON
 }
 
+type fakeRotation struct {
+	rotationJSON
+	org string
+}
+
 type fakeToken struct {
 	json   tokenJSON
 	org    string
@@ -68,7 +77,7 @@ type fakeToken struct {
 
 func newFakeServer(t *testing.T) *fakeServer {
 	f := &fakeServer{t: t, emails: map[string]string{}, profiles: map[string]*fakeProfile{}, members: map[string]map[string]memberJSON{},
-		versions: map[string][]secretJSON{}}
+		versions: map[string][]secretJSON{}, fetched: map[string]map[string]bool{}}
 	mux := http.NewServeMux()
 	route := func(pattern string, h func(user string, r *http.Request) (any, int, error)) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
@@ -113,6 +122,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 	route("POST /api/v1/environments/{env}/secrets", f.postSecret)
 	route("POST /api/v1/environments/{env}/rotate", f.postRotate)
 	route("GET /api/v1/machine/environment", f.machineEnvironment)
+	route("PATCH /api/v1/rotation/{task}/items/{secret}", f.patchRotationItem)
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
 	return f
@@ -336,13 +346,20 @@ func (f *fakeServer) getOrg(user string, r *http.Request) (any, int, error) {
 			}
 		}
 	}
+	for _, r := range f.rotations {
+		if r.org == o.id {
+			snap.Rotation = append(snap.Rotation, r.rotationJSON)
+		}
+	}
 	return snap, 200, nil
 }
+
+func secretID(env, name string) string { return "sec-" + env + "-" + name }
 
 func (f *fakeServer) secretMeta(env string) []secretMeta {
 	var out []secretMeta
 	for _, s := range f.current(env) {
-		out = append(out, secretMeta{Name: s.Name, CurrentVersion: s.Version})
+		out = append(out, secretMeta{ID: secretID(env, s.Name), Name: s.Name, CurrentVersion: s.Version})
 	}
 	return out
 }
@@ -386,6 +403,7 @@ func (f *fakeServer) postMember(user string, r *http.Request) (any, int, error) 
 			_, p := f.envInfo(w.env)
 			return p.org == o.id && w.w.RecipientUserID != nil && *w.w.RecipientUserID == b.UserID
 		})
+		f.startRotation(o.id, "member removed", &b.UserID, nil)
 	}
 	return map[string]string{"user_id": b.UserID}, 201, nil
 }
@@ -452,6 +470,7 @@ func (f *fakeServer) getEnvironment(user string, r *http.Request) (any, int, err
 		return fail(403, fmt.Errorf("this device is not approved"))
 	}
 	f.fetches++
+	f.recordFetch(env, "user:"+user)
 	return f.payload(env, func(w wrappedJSON) bool {
 		return w.RecipientUserID != nil && *w.RecipientUserID == user && (w.RecipientID == device || w.RecipientID == "recovery")
 	}), 200, nil
@@ -519,7 +538,9 @@ type fakeVersion struct {
 	Signature  []byte `json:"signature"`
 }
 
-func (f *fakeServer) storeVersion(user, env string, b fakeVersion) (int, error) {
+// storeVersion stores the next version of a secret. newValue is false when a
+// new epoch encrypts the same value again, which rotates nothing.
+func (f *fakeServer) storeVersion(user, env string, b fakeVersion, newValue bool) (int, error) {
 	e, _ := f.envInfo(env)
 	if e == nil || !f.canAdminister(env, user) {
 		return 403, errForbidden
@@ -538,11 +559,20 @@ func (f *fakeServer) storeVersion(user, env string, b fakeVersion) (int, error) 
 	}
 	f.versions[env] = append(f.versions[env], secretJSON{Name: b.Name, Version: b.Version, Epoch: b.Epoch, Nonce: b.Nonce, Ciphertext: b.Ciphertext,
 		WriterUserID: user, WriterDeviceID: b.Device, Signature: b.Signature})
+	if newValue {
+		for _, r := range f.rotations {
+			for i := range r.Items {
+				if r.Items[i].SecretID == secretID(env, b.Name) && r.Items[i].Status == RotationPending {
+					r.Items[i].Status = RotationRotated
+				}
+			}
+		}
+	}
 	return 201, nil
 }
 
 func (f *fakeServer) postSecret(user string, r *http.Request) (any, int, error) {
-	status, err := f.storeVersion(user, r.PathValue("env"), decode[fakeVersion](r))
+	status, err := f.storeVersion(user, r.PathValue("env"), decode[fakeVersion](r), true)
 	return map[string]any{}, status, err
 }
 
@@ -569,7 +599,7 @@ func (f *fakeServer) postRotate(user string, r *http.Request) (any, int, error) 
 	}
 	for _, v := range b.Versions {
 		v.Epoch, v.Device = b.NewEpoch, b.Device
-		if status, err := f.storeVersion(user, env, v); err != nil {
+		if status, err := f.storeVersion(user, env, v, false); err != nil {
 			return fail(status, err)
 		}
 	}
@@ -607,6 +637,7 @@ func (f *fakeServer) deleteToken(user string, r *http.Request) (any, int, error)
 			f.wrapped = slices.DeleteFunc(f.wrapped, func(w *fakeWrapped) bool {
 				return w.w.RecipientTokenID != nil && *w.w.RecipientTokenID == t.json.ID
 			})
+			f.startRotation(t.org, "machine token revoked", nil, &t.json.ID)
 			return nil, 204, nil
 		}
 	}
@@ -633,10 +664,68 @@ func (f *fakeServer) machineEnvironment(_ string, r *http.Request) (any, int, er
 			if o.id != token.org || !cloudcrypto.Allows(token.json.Scope, p.slug, e.slug) {
 				return fail(403, errForbidden)
 			}
+			f.recordFetch(e.id, "token:"+id)
 			return f.payload(e.id, func(w wrappedJSON) bool { return w.RecipientTokenID != nil && *w.RecipientTokenID == id }), 200, nil
 		}
 	}
 	return fail(404, errNotFound)
+}
+
+// ---------------------------------------------------------------- guided rotation
+
+func (f *fakeServer) recordFetch(env, actor string) {
+	if f.fetched[env] == nil {
+		f.fetched[env] = map[string]bool{}
+	}
+	f.fetched[env][actor] = true
+}
+
+// startRotation lists every secret of the environments the subject fetched,
+// and marks those environments for a new epoch.
+func (f *fakeServer) startRotation(org, reason string, user, token *string) {
+	actor := ""
+	if user != nil {
+		actor = "user:" + *user
+	} else {
+		actor = "token:" + *token
+	}
+	task := &fakeRotation{org: org, rotationJSON: rotationJSON{ID: fmt.Sprintf("rot-%d", len(f.rotations)+1), Reason: reason,
+		SubjectUserID: user, SubjectToken: token, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
+	for _, e := range f.envs {
+		if _, p := f.envInfo(e.id); p.org != org || !f.fetched[e.id][actor] {
+			continue
+		}
+		e.needsRotation = true
+		for _, s := range f.current(e.id) {
+			task.Items = append(task.Items, struct {
+				SecretID string `json:"secret_id"`
+				Status   string `json:"status"`
+			}{secretID(e.id, s.Name), RotationPending})
+		}
+	}
+	f.rotations = append(f.rotations, task)
+}
+
+func (f *fakeServer) patchRotationItem(user string, r *http.Request) (any, int, error) {
+	b := decode[struct{ Status string }](r)
+	for _, task := range f.rotations {
+		if task.ID != r.PathValue("task") {
+			continue
+		}
+		if !f.isAdmin(task.org, user) {
+			return fail(403, errForbidden)
+		}
+		if !slices.Contains([]string{RotationPending, RotationRotated, RotationAccepted}, b.Status) {
+			return fail(400, fmt.Errorf("unknown status"))
+		}
+		for i := range task.Items {
+			if task.Items[i].SecretID == r.PathValue("secret") {
+				task.Items[i].Status = b.Status
+			}
+		}
+		return nil, 204, nil
+	}
+	return fail(403, errForbidden)
 }
 
 // ---------------------------------------------------------------- clients

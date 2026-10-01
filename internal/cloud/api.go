@@ -142,6 +142,11 @@ func (c *Client) revokeToken(ctx context.Context, id string) error {
 	return c.call(ctx, http.MethodDelete, "/tokens/"+url.PathEscape(id), nil, nil, nil)
 }
 
+func (c *Client) updateRotationItem(ctx context.Context, task, secret, status string) error {
+	path := "/rotation/" + url.PathEscape(task) + "/items/" + url.PathEscape(secret)
+	return c.call(ctx, http.MethodPatch, path, nil, map[string]string{"status": status}, nil)
+}
+
 func nonNil(s []string) []string {
 	if s == nil {
 		return []string{}

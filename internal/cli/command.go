@@ -91,6 +91,7 @@ EnvRune Cloud (end-to-end encrypted sharing; run envrune cloud for details)
   cloud whoami|init|recover   Your account, this device, and their fingerprints
   cloud device|org|member|project|env ...  Devices, organizations, and members
   cloud set|copy|pull|sync|share|rotate ... Secrets, verified on this device
+  cloud rotation <org>        Values someone who left could read, to replace
   cloud token create|revoke   Machine tokens for CI
 
 Environment variables: ENVRUNE_VAULT, ENVRUNE_PASSWORD_FILE, ENVRUNE_PASSWORD,

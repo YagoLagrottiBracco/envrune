@@ -244,14 +244,18 @@ and the panel say so.
    environment the member could use, wraps it to the remaining devices and
    recovery recipients, and re-encrypts the **current** version of each
    secret under the new epoch.
-3. Guided rotation starts: the panel and `envrune cloud rotation` list every
-   secret the member could decrypt ("this person had access to these N
-   secrets"), and for each one offer to generate a new value
-   (`envrune rotate`) or link to the provider's console, recording progress
-   until every item is rotated or explicitly accepted.
+3. Guided rotation starts: the panel and `envrune cloud rotation <org>` list
+   every secret the member fetched ("this person could read these N
+   secrets"). Each one waits until someone writes a new value
+   (`envrune cloud set`, with `--generate` for a random one) or an owner or
+   admin records that it stays as it is (`envrune cloud rotation accept`, or
+   "Keep this value" in the panel).
 
 Step 2 keeps the removed member from reading anything written from now on.
-Only step 3 protects the values they already knew.
+Only step 3 protects the values they already knew, so the two are recorded
+apart: the values step 2 encrypts again under the new epoch are stored as
+`secret.reencrypt` in the audit log and leave the rotation list untouched;
+only a new value (`secret.write`) marks a secret rotated.
 
 ## Machine tokens (CI and deploys)
 

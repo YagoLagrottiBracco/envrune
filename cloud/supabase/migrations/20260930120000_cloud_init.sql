@@ -555,9 +555,12 @@ begin
     jsonb_build_object('epoch', p_epoch, 'recipients', jsonb_array_length(p_keys)), p_device);
 end $$;
 
--- Writes the next version of a secret. Versions only go up, one at a time.
-create or replace function public.put_secret_version(p_env uuid, p_name text, p_version bigint, p_epoch bigint,
-  p_nonce bytea, p_ciphertext bytea, p_device text, p_signature bytea) returns void
+-- Stores the next version of a secret. Versions only go up, one at a time.
+-- p_new_value tells a value somebody replaced from the same value encrypted
+-- again under a new epoch: only the first counts for guided rotation, since
+-- whoever left still knows a value that was merely encrypted again.
+create or replace function private.write_secret_version(p_env uuid, p_name text, p_version bigint, p_epoch bigint,
+  p_nonce bytea, p_ciphertext bytea, p_device text, p_signature bytea, p_new_value boolean) returns void
 language plpgsql security definer set search_path = '' as $$
 declare me uuid := private.caller(); info record; s uuid; current bigint;
 begin
@@ -578,11 +581,20 @@ begin
   insert into public.secret_versions (secret_id, version, epoch, nonce, ciphertext, writer_user_id, writer_device_id, signature)
   values (s, p_version, p_epoch, p_nonce, p_ciphertext, me, p_device, p_signature);
   update public.secrets set current_version = p_version where id = s;
-  update public.rotation_items set status = 'rotated', updated_by = me, updated_at = now()
-  where secret_id = s and status = 'pending';
-  perform private.audit(info.org_id, 'secret.write', info.project || '/' || info.env || '/' || p_name,
-    jsonb_build_object('version', p_version), p_device);
+  if p_new_value then
+    update public.rotation_items set status = 'rotated', updated_by = me, updated_at = now()
+    where secret_id = s and status = 'pending';
+  end if;
+  perform private.audit(info.org_id, case when p_new_value then 'secret.write' else 'secret.reencrypt' end,
+    info.project || '/' || info.env || '/' || p_name, jsonb_build_object('version', p_version, 'epoch', p_epoch), p_device);
 end $$;
+
+-- Writes a new value of a secret, which also rotates it in guided rotation.
+create or replace function public.put_secret_version(p_env uuid, p_name text, p_version bigint, p_epoch bigint,
+  p_nonce bytea, p_ciphertext bytea, p_device text, p_signature bytea) returns void
+language sql security definer set search_path = '' as $$
+  select private.write_secret_version(p_env, p_name, p_version, p_epoch, p_nonce, p_ciphertext, p_device, p_signature, true);
+$$;
 
 -- Starts a new epoch: the caller's device uploads the new key wrapped for
 -- every remaining recipient, and the current version of every secret
@@ -602,8 +614,8 @@ begin
   update public.environments set epoch = p_new_epoch, needs_rotation = false where id = p_env;
   perform public.put_wrapped_keys(p_env, p_new_epoch, p_device, p_keys);
   for v in select * from jsonb_array_elements(p_versions) loop
-    perform public.put_secret_version(p_env, v->>'name', (v->>'version')::bigint, p_new_epoch,
-      decode(v->>'nonce', 'base64'), decode(v->>'ciphertext', 'base64'), p_device, decode(v->>'signature', 'base64'));
+    perform private.write_secret_version(p_env, v->>'name', (v->>'version')::bigint, p_new_epoch,
+      decode(v->>'nonce', 'base64'), decode(v->>'ciphertext', 'base64'), p_device, decode(v->>'signature', 'base64'), false);
   end loop;
   perform private.audit(info.org_id, 'environment.rotate', info.project || '/' || info.env,
     jsonb_build_object('epoch', p_new_epoch), p_device);

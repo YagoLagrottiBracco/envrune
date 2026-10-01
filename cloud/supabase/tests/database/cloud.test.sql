@@ -4,7 +4,7 @@
 -- member. Signatures are placeholders: the database does not check them;
 -- the API and every client do.
 begin;
-select plan(34);
+select plan(39);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'alice@example.com'),
@@ -118,12 +118,43 @@ select public.add_membership(:'org', '00000000-0000-0000-0000-00000000000d', 're
 reset role;
 select is((select count(*)::int from public.wrapped_keys where recipient_user_id = '00000000-0000-0000-0000-00000000000d'), 0,
   'a removed member keeps no wrapped keys');
-select is((select count(*)::int from public.rotation_items), 1, 'rotation lists the secret the removed member fetched');
+select is((select count(*)::int from public.rotation_items where task_id in (select id from public.rotation_tasks where org_id = :'org')), 1, 'rotation lists the secret the removed member fetched');
 select ok((select needs_rotation from public.environments where id = :'env'), 'the environment needs a new epoch');
 set local role authenticated;
 select pg_temp.become('00000000-0000-0000-0000-00000000000d');
 select throws_ok(format($$ select public.fetch_environment(%L, 'dave-laptop') $$, :'env'), '42501', null,
   'a removed member cannot fetch');
+
+-- The new epoch encrypts the same values again, which dave already knows:
+-- that is not a rotation. Only a new value is.
+select pg_temp.become('00000000-0000-0000-0000-00000000000b');
+select public.rotate_environment(:'env', 2, 'bob-laptop', '[]'::jsonb, jsonb_build_array(jsonb_build_object(
+  'name', 'stripe-key', 'version', (select current_version + 1 from public.secrets where environment_id = :'env' and name = 'stripe-key'),
+  'nonce', encode(decode(repeat('00', 24), 'hex'), 'base64'), 'ciphertext', encode('y', 'base64'), 'signature', encode(pg_temp.sig(), 'base64'))));
+reset role;
+select is((select status from public.rotation_items where task_id in (select id from public.rotation_tasks where org_id = :'org')), 'pending', 'a new epoch does not count as rotating the values');
+set local role authenticated;
+select pg_temp.become('00000000-0000-0000-0000-00000000000b');
+select public.put_secret_version(:'env', 'stripe-key', (select current_version + 1 from public.secrets where environment_id = :'env' and name = 'stripe-key'),
+  2, decode(repeat('00', 24), 'hex'), 'z', 'bob-laptop', pg_temp.sig());
+reset role;
+select is((select status from public.rotation_items where task_id in (select id from public.rotation_tasks where org_id = :'org')), 'rotated', 'a new value rotates the secret');
+
+-- Keeping a value as it is goes on the record, and only owners and admins
+-- decide it.
+select t.id as task, i.secret_id as secret from public.rotation_tasks t join public.rotation_items i on i.task_id = t.id
+where t.org_id = :'org' \gset
+set local role authenticated;
+select pg_temp.become('00000000-0000-0000-0000-00000000000c');
+select throws_ok(format($$ select public.update_rotation_item(%L, %L, 'accepted') $$, :'task', :'secret'), '42501', null,
+  'a maintainer cannot accept a rotation');
+select pg_temp.become('00000000-0000-0000-0000-00000000000b');
+select public.update_rotation_item(:'task', :'secret', 'accepted');
+reset role;
+select is((select status from public.rotation_items where task_id = :'task'), 'accepted', 'an admin records that a value stays');
+select is((select count(*)::int from public.audit_log where org_id = :'org' and action = 'secret.reencrypt'), 1,
+  'the audit log tells a value encrypted again from a new one');
+set local role authenticated;
 
 -- The audit log is append-only and hash-chained.
 reset role;
