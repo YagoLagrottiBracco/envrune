@@ -128,7 +128,7 @@ func TestEndToEnd(t *testing.T) {
 	if found.Fingerprint != must[*Status](t)(bob.Status()).AccountFingerprint {
 		t.Fatal("the fingerprints differ")
 	}
-	must[int](t)(alice.AddMember(ctx, org, found, cloudcrypto.RoleConsumer, []string{"shop/production"}))
+	must[*Handover](t)(alice.AddMember(ctx, org, found, cloudcrypto.RoleConsumer, []string{"shop/production"}))
 	if got, role := read(t, bob, prod); got != "sk_live_1" || role != cloudcrypto.RoleConsumer {
 		t.Fatalf("bob read %q as %s", got, role)
 	}
@@ -172,13 +172,19 @@ func TestEndToEnd(t *testing.T) {
 	// afterwards reaches everyone but them.
 	carol, carolEmail := e.user("carol")
 	must[*SetupResult](t)(carol.Setup(ctx, "carol-laptop"))
-	must[int](t)(alice.AddMember(ctx, org, must[*Account](t)(alice.LookupAccount(ctx, carolEmail)), cloudcrypto.RoleMaintainer, []string{"shop/*"}))
+	must[*Handover](t)(alice.AddMember(ctx, org, must[*Account](t)(alice.LookupAccount(ctx, carolEmail)), cloudcrypto.RoleMaintainer, []string{"shop/*"}))
 	if got, _ := read(t, carol, prod); got != "sk_live_1" {
 		t.Fatalf("carol read %q", got)
 	}
+	// She writes the current value, so removing her must sign it again:
+	// readers refuse what a former member signed.
+	must[uint64](t)(carol.Set(ctx, prod, []byte("sk_live_1b")))
 	carolID := must[*Status](t)(carol.Status()).UserID
-	if rotated := must[[]string](t)(alice.RemoveMember(ctx, org, carolID)); len(rotated) != 1 {
-		t.Fatalf("rotated %v", rotated)
+	if h := must[*Handover](t)(alice.RemoveMember(ctx, org, carolID)); len(h.Rotated) != 1 || len(h.Left) != 0 {
+		t.Fatalf("the removal handed over %+v", h)
+	}
+	if got, _ := read(t, bob, prod); got != "sk_live_1b" {
+		t.Fatalf("after the removal bob read %q", got)
 	}
 	// Guided rotation: carol read the value, and the new epoch only encrypted
 	// it again, so it waits until a new value is written.
@@ -227,7 +233,7 @@ func TestEndToEnd(t *testing.T) {
 		}
 	}
 	var apiErr *APIError
-	if _, err := bob.Rotate(ctx, org, "shop", "production"); err == nil || errors.As(err, &apiErr) {
+	if _, err := bob.Rotate(ctx, org, "shop", "production", false); err == nil || errors.As(err, &apiErr) {
 		t.Fatalf("a consumer's rotation was not refused on the device: %v", err)
 	}
 

@@ -64,6 +64,22 @@ key for every environment they could use, so they cannot read anything
 written afterwards. **They may still know the values they already read**:
 replace those values, as described next.
 
+Removing a member, or changing their role with `member set` so that they
+can no longer write somewhere, also signs again what they had signed: the
+values they wrote, the keys they shared, and the memberships they issued.
+Devices refuse a former member's signature, so the command does this for
+you and says what it did. Two things it may leave to someone else, and
+names when it does:
+
+- an environment the member could write to that **you** do not administer.
+  Someone who does runs `envrune cloud rotate acme/shop/staging
+  --accept-removed`; until then its values do not verify;
+- a member they had added with a role you may not grant. An owner adds them
+  again with `envrune cloud member set`.
+
+Machine tokens a removed member created are revoked, since they have seen
+them. Create new ones for CI.
+
 ## After someone leaves: guided rotation
 
 When a member is removed or a machine token revoked, the server lists every

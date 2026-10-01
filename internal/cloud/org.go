@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -280,69 +281,99 @@ func (s *Service) LookupAccount(ctx context.Context, email string) (*Account, er
 	return &Account{UserID: found.UserID, Key: found.AccountKey, Fingerprint: cloudcrypto.Fingerprint(found.AccountKey)}, nil
 }
 
+// Handover is what a membership change did besides signing it. Readers
+// only accept keys and values signed by someone who may write to the
+// environment now, so when a member loses that, everything they signed is
+// signed again by whoever made the change.
+type Handover struct {
+	// Shared counts the environments whose keys were shared with the
+	// member's devices (adding or changing a member).
+	Shared int
+	// Rotated lists the environments, as project/env, given a new epoch.
+	Rotated []string
+	// Left lists the environments the member signed for or could read that
+	// this account does not administer: until someone who does rotates
+	// them with acceptRemoved, their values do not verify.
+	Left []string
+	// Reissued lists the members whose membership the changed member had
+	// signed, and this account signed again.
+	Reissued []string
+	// Orphaned lists the members whose membership the changed member had
+	// signed and this account may not sign: an owner must add them again.
+	Orphaned []string
+	// Revoked lists the machine tokens a removed member had created, and so
+	// had seen.
+	Revoked []string
+}
+
 // AddMember signs a membership for an account whose fingerprint the admin
 // confirmed, then shares with the member's devices the environment keys
-// this device holds and may share. It returns how many keys it shared.
-func (s *Service) AddMember(ctx context.Context, org string, account *Account, role string, scope []string) (int, error) {
+// this device holds and may share.
+func (s *Service) AddMember(ctx context.Context, org string, account *Account, role string, scope []string) (*Handover, error) {
+	if role == cloudcrypto.RoleRemoved {
+		return nil, errors.New("use RemoveMember")
+	}
 	return s.certify(ctx, org, account.UserID, account.Key, role, scope)
 }
 
 // ChangeMember signs a new role or scope for a current member, whose key
 // comes from their verified membership rather than from the server.
-func (s *Service) ChangeMember(ctx context.Context, org, userID, role string, scope []string) (int, error) {
+func (s *Service) ChangeMember(ctx context.Context, org, userID, role string, scope []string) (*Handover, error) {
 	if role == cloudcrypto.RoleRemoved {
-		return 0, errors.New("use RemoveMember")
+		return nil, errors.New("use RemoveMember")
 	}
-	_, c, err := s.signedIn()
+	current, err := s.verifiedMember(ctx, org, userID)
 	if err != nil {
-		return 0, err
-	}
-	v, err := s.view(ctx, c, org)
-	if err != nil {
-		return 0, err
-	}
-	current, err := v.trust.Verify(v.certs, userID)
-	if err != nil {
-		return 0, fmt.Errorf("%s is not a verified member: %w", userID, err)
+		return nil, err
 	}
 	return s.certify(ctx, org, userID, current.AccountKey, role, scope)
 }
 
-func (s *Service) certify(ctx context.Context, org, userID string, key ed25519.PublicKey, role string, scope []string) (int, error) {
-	st, c, device, err := s.ready()
-	if err != nil {
-		return 0, err
-	}
-	account, err := st.account()
-	if err != nil {
-		return 0, err
-	}
-	v, err := s.view(ctx, c, org)
-	if err != nil {
-		return 0, err
-	}
-	cert, err := account.Certify(v.trust.OrgID, userID, key, role, scope)
-	if err != nil {
-		return 0, err
-	}
-	if err := c.addMembership(ctx, org, cert); err != nil {
-		return 0, err
-	}
-	return s.shareAll(ctx, c, st, device, org)
-}
-
-// RemoveMember signs a removal, then rotates every environment the member
+// RemoveMember signs a removal and rotates every environment the member
 // could use and this device administers, so they cannot read anything
-// written afterwards. The values they already knew still need rotating
-// (`envrune cloud rotation`). It returns the environments it rotated.
-func (s *Service) RemoveMember(ctx context.Context, org, userID string) ([]string, error) {
-	st, c, _, err := s.ready()
+// written afterwards. The values they already knew still need replacing
+// (`envrune cloud rotation`).
+func (s *Service) RemoveMember(ctx context.Context, org, userID string) (*Handover, error) {
+	st, err := s.state()
 	if err != nil {
 		return nil, err
 	}
 	if userID == st.UserID {
 		return nil, errors.New("you cannot remove yourself; ask another owner or admin")
 	}
+	removed, err := s.verifiedMember(ctx, org, userID)
+	if err != nil {
+		return nil, err
+	}
+	return s.certify(ctx, org, userID, removed.AccountKey, cloudcrypto.RoleRemoved, nil)
+}
+
+func (s *Service) verifiedMember(ctx context.Context, org, userID string) (cloudcrypto.Membership, error) {
+	_, c, err := s.signedIn()
+	if err != nil {
+		return cloudcrypto.Membership{}, err
+	}
+	v, err := s.view(ctx, c, org)
+	if err != nil {
+		return cloudcrypto.Membership{}, err
+	}
+	member, err := v.trust.Verify(v.certs, userID)
+	if err != nil {
+		return member, fmt.Errorf("%s is not a verified member: %w", userID, err)
+	}
+	return member, nil
+}
+
+// certify signs a membership and hands over what the member signed and can
+// no longer answer for. The order matters: the environments are opened
+// while the member's signatures still verify, then the change is signed,
+// then each environment gets a new epoch signed by this device. Nothing
+// along the way relies on a signature from someone who already left.
+func (s *Service) certify(ctx context.Context, org, userID string, key ed25519.PublicKey, role string, scope []string) (*Handover, error) {
+	st, c, device, err := s.ready()
+	if err != nil {
+		return nil, err
+	}
 	account, err := st.account()
 	if err != nil {
 		return nil, err
@@ -351,33 +382,105 @@ func (s *Service) RemoveMember(ctx context.Context, org, userID string) ([]strin
 	if err != nil {
 		return nil, err
 	}
-	removed, err := v.trust.Verify(v.certs, userID)
-	if err != nil {
-		return nil, fmt.Errorf("%s is not a verified member: %w", userID, err)
-	}
-	cert, err := account.Certify(v.trust.OrgID, userID, removed.AccountKey, cloudcrypto.RoleRemoved, nil)
-	if err != nil {
-		return nil, err
-	}
-	if err := c.addMembership(ctx, org, cert); err != nil {
-		return nil, err
-	}
 	me, err := v.member(st.UserID)
 	if err != nil {
 		return nil, err
 	}
-	var rotated []string
-	for _, p := range v.snap.Projects {
-		for _, e := range p.Environments {
-			if removed.CanUse(p.Slug, e.Slug) && me.CanAdminister(p.Slug, e.Slug) {
-				if _, err := s.Rotate(ctx, org, p.Slug, e.Slug); err != nil {
-					return rotated, fmt.Errorf("%s/%s: %w", p.Slug, e.Slug, err)
+	removal := role == cloudcrypto.RoleRemoved
+	after := cloudcrypto.Membership{UserID: userID, AccountKey: key, Role: role, Scope: scope}
+	h := &Handover{}
+
+	type pending struct {
+		project, env string
+		current      *opened
+	}
+	var rotate []pending
+	defer func() {
+		for _, r := range rotate {
+			if r.current != nil {
+				r.current.wipe()
+			}
+		}
+	}()
+	if before, err := v.trust.Verify(v.certs, userID); err == nil && !before.Root {
+		for _, p := range v.snap.Projects {
+			for _, e := range p.Environments {
+				if !(removal && before.CanUse(p.Slug, e.Slug)) && !(before.CanAdminister(p.Slug, e.Slug) && !after.CanAdminister(p.Slug, e.Slug)) {
+					continue
 				}
-				rotated = append(rotated, p.Slug+"/"+e.Slug)
+				if !me.CanAdminister(p.Slug, e.Slug) {
+					h.Left = append(h.Left, p.Slug+"/"+e.Slug)
+					continue
+				}
+				current, err := s.openCurrent(ctx, c, st, device, v, &p, &e, false)
+				if err != nil && !(errors.Is(err, ErrNoKey) && len(e.Secrets) == 0) {
+					return h, fmt.Errorf("%s/%s: %w", p.Slug, e.Slug, err)
+				}
+				rotate = append(rotate, pending{project: p.Slug, env: e.Slug, current: current})
+			}
+		}
+		// Memberships the member signed stop verifying once they may not
+		// sign them: sign again the ones this account may.
+		for _, m := range v.snap.Members {
+			held, err := v.trust.Verify(v.certs, m.UserID)
+			if err != nil || m.UserID == userID || held.IssuerID != userID || after.MayIssue(held.Role, held.Scope) {
+				continue
+			}
+			if !me.MayIssue(held.Role, held.Scope) {
+				h.Orphaned = append(h.Orphaned, m.UserID)
+				continue
+			}
+			again, err := account.Certify(v.trust.OrgID, m.UserID, held.AccountKey, held.Role, held.Scope)
+			if err != nil {
+				return h, err
+			}
+			if err := c.addMembership(ctx, org, again); err != nil {
+				return h, fmt.Errorf("signing %s's membership again: %w", m.UserID, err)
+			}
+			h.Reissued = append(h.Reissued, m.UserID)
+		}
+	}
+
+	cert, err := account.Certify(v.trust.OrgID, userID, key, role, scope)
+	if err != nil {
+		return h, err
+	}
+	if err := c.addMembership(ctx, org, cert); err != nil {
+		return h, err
+	}
+	if removal {
+		// They created these tokens, so they saw them.
+		for _, t := range v.snap.Tokens {
+			if t.CreatedBy == userID && t.RevokedAt == nil {
+				if err := c.revokeToken(ctx, t.ID); err != nil {
+					return h, fmt.Errorf("revoking token %s: %w", t.ID, err)
+				}
+				h.Revoked = append(h.Revoked, t.ID)
 			}
 		}
 	}
-	return rotated, nil
+
+	if len(rotate) > 0 {
+		if v, err = s.view(ctx, c, org); err != nil {
+			return h, err
+		}
+		for _, r := range rotate {
+			p, e, err := v.environment(r.project, r.env)
+			if err != nil {
+				return h, err
+			}
+			if _, err := s.rotateTo(ctx, c, st, device, v, p, e, r.current); err != nil {
+				return h, fmt.Errorf("%s/%s: %w", r.project, r.env, err)
+			}
+			h.Rotated = append(h.Rotated, r.project+"/"+r.env)
+		}
+	}
+	if !removal {
+		if h.Shared, err = s.shareAll(ctx, c, st, device, org); err != nil {
+			return h, err
+		}
+	}
+	return h, nil
 }
 
 // Share wraps every environment key this device holds, in environments it
@@ -501,9 +604,16 @@ func (s *Service) firstKey(ctx context.Context, c *Client, st *State, device *cl
 }
 
 // Rotate starts the environment's next epoch: a new key for the recipients
-// the chain allows now, and every current value encrypted again under it,
-// so anyone removed cannot read what is written from now on.
-func (s *Service) Rotate(ctx context.Context, org, project, env string) (uint64, error) {
+// the chain allows now, and every current value encrypted again under it
+// and signed by this device, so anyone removed cannot read what is written
+// from now on.
+//
+// acceptRemoved also accepts a key or a value signed by a member who could
+// write to the environment once and cannot now, which readers refuse. It is
+// for environments a removal left behind. Use it knowing that the device
+// cannot tell what such a member signed before leaving from what was signed
+// with their key afterwards.
+func (s *Service) Rotate(ctx context.Context, org, project, env string, acceptRemoved bool) (uint64, error) {
 	st, c, device, err := s.ready()
 	if err != nil {
 		return 0, err
@@ -523,18 +633,43 @@ func (s *Service) Rotate(ctx context.Context, org, project, env string) (uint64,
 	if !me.CanAdminister(project, env) {
 		return 0, fmt.Errorf("your role cannot rotate %s/%s", project, env)
 	}
-	opened, err := s.fetch(ctx, c, st, device, v, p, e, false)
-	if err != nil && !errors.Is(err, ErrNoKey) {
+	current, err := s.openCurrent(ctx, c, st, device, v, p, e, acceptRemoved)
+	if err != nil && !(errors.Is(err, ErrNoKey) && len(e.Secrets) == 0) {
 		return 0, err
 	}
-	if opened != nil {
-		defer opened.wipe()
-	} else if len(e.Secrets) > 0 {
-		return 0, err
+	if current != nil {
+		defer current.wipe()
 	}
+	return s.rotateTo(ctx, c, st, device, v, p, e, current)
+}
+
+// openCurrent fetches, verifies, and decrypts an environment to rotate it,
+// without storing it as the offline cache.
+func (s *Service) openCurrent(ctx context.Context, c *Client, st *State, device *cloudcrypto.Device, v *view, p *projectJSON, e *environmentJSON, former bool) (*opened, error) {
+	payload, err := c.fetchEnvironment(ctx, e.ID, device.DeviceID)
+	if err != nil {
+		return nil, err
+	}
+	ver := v.verifier(p, e, payload)
+	ver.former = former
+	key, err := ver.key(payload, map[string]age.Identity{device.DeviceID: device.Identity}, st.UserID)
+	if err != nil {
+		return nil, err
+	}
+	values, err := ver.open(payload, key, maps.Clone(st.Versions), false)
+	if err != nil {
+		key.Wipe()
+		return nil, err
+	}
+	return &opened{payload: payload, key: key, values: values}, nil
+}
+
+// rotateTo starts the epoch after current, which is nil for an environment
+// with no key and no values yet. v decides who receives the new key.
+func (s *Service) rotateTo(ctx context.Context, c *Client, st *State, device *cloudcrypto.Device, v *view, p *projectJSON, e *environmentJSON, current *opened) (uint64, error) {
 	epoch := e.Epoch + 1
-	if opened != nil {
-		epoch = opened.payload.Epoch + 1
+	if current != nil {
+		epoch = current.payload.Epoch + 1
 	}
 	key, err := cloudcrypto.NewEnvironmentKey(v.trust.OrgID, p.ID, e.ID, epoch)
 	if err != nil {
@@ -546,9 +681,9 @@ func (s *Service) Rotate(ctx context.Context, org, project, env string) (uint64,
 		return 0, err
 	}
 	var versions []*cloudcrypto.SecretRecord
-	if opened != nil {
-		for _, sec := range opened.payload.Secrets {
-			record, err := device.Seal(key, sec.Name, sec.Version+1, opened.values[sec.Name])
+	if current != nil {
+		for _, sec := range current.payload.Secrets {
+			record, err := device.Seal(key, sec.Name, sec.Version+1, current.values[sec.Name])
 			if err != nil {
 				return 0, err
 			}

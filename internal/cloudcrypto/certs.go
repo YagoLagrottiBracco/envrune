@@ -128,7 +128,14 @@ type Membership struct {
 	AccountKey ed25519.PublicKey
 	Role       string
 	Scope      []string
-	Root       bool // one of the pinned root holders
+	Root       bool   // one of the pinned root holders
+	IssuerID   string // who signed it; empty for a root holder
+}
+
+// MayIssue reports whether the member may sign a membership with this role
+// and scope.
+func (m Membership) MayIssue(role string, scope []string) bool {
+	return mayIssue(m, &MembershipCertificate{Role: role, Scope: scope})
 }
 
 // CanUse reports whether the member receives the environment key.
@@ -194,7 +201,30 @@ func (t Trust) verify(certs []*MembershipCertificate, userID string, visiting ma
 	if best.Role == RoleRemoved {
 		return Membership{}, errNoMembership
 	}
-	return Membership{UserID: userID, AccountKey: best.AccountKey, Role: best.Role, Scope: best.Scope}, nil
+	return Membership{UserID: userID, AccountKey: best.AccountKey, Role: best.Role, Scope: best.Scope, IssuerID: best.IssuerID}, nil
+}
+
+// Former returns every membership userID validly held, including ones a
+// later certificate replaced or ended. Something they signed while they
+// held one was theirs to sign; it cannot tell that from something signed
+// afterwards with the same key, so only a rotation that replaces what they
+// left may rely on it.
+func (t Trust) Former(certs []*MembershipCertificate, userID string) []Membership {
+	if root, ok := t.Roots[userID]; ok {
+		return []Membership{{UserID: userID, AccountKey: root, Role: RoleOwner, Scope: []string{"*"}, Root: true}}
+	}
+	var held []Membership
+	for _, c := range certs {
+		if c.OrgID != t.OrgID || c.UserID != userID || c.Role == RoleRemoved || c.IssuerID == userID {
+			continue
+		}
+		issuer, err := t.Verify(certs, c.IssuerID)
+		if err != nil || verify(issuer.AccountKey, c.signed(), c.Signature) != nil || !mayIssue(issuer, c) {
+			continue
+		}
+		held = append(held, Membership{UserID: userID, AccountKey: c.AccountKey, Role: c.Role, Scope: c.Scope, IssuerID: c.IssuerID})
+	}
+	return held
 }
 
 // mayIssue: owners issue anything; admins issue anything but owner, never

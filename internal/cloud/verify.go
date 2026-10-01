@@ -15,6 +15,10 @@ var (
 	// ErrOrgChanged means the server answered with another organization
 	// than the one this device pinned under that name.
 	ErrOrgChanged = errors.New("the server returned a different organization than the one this device pinned; refusing to trust it")
+	// ErrSignerLeft means a key or a value was signed by someone who could
+	// write to the environment once and cannot now. Readers refuse it: the
+	// same key could have signed it after they left.
+	ErrSignerLeft = errors.New("someone who administers it must run `envrune cloud rotate` with --accept-removed, which signs again what they left")
 )
 
 // verifier checks one environment's wrapped keys and values against the
@@ -27,6 +31,9 @@ type verifier struct {
 	trust                   cloudcrypto.Trust
 	certs                   []*cloudcrypto.MembershipCertificate
 	devices                 []deviceJSON
+	// former also accepts what a member signed under a membership they no
+	// longer hold. Only a rotation, which signs everything again, sets it.
+	former bool
 }
 
 func certificates(certs ...[]certJSON) []*cloudcrypto.MembershipCertificate {
@@ -52,23 +59,40 @@ func pinned(roots map[string][]byte) map[string]ed25519.PublicKey {
 // accepts that membership.
 func (v *verifier) signer(userID, deviceID string, allowed func(cloudcrypto.Membership) bool) (ed25519.PublicKey, error) {
 	member, err := v.trust.Verify(v.certs, userID)
+	if err == nil && allowed(member) {
+		return v.deviceKey(member, deviceID)
+	}
+	for _, held := range v.trust.Former(v.certs, userID) {
+		if !allowed(held) {
+			continue
+		}
+		if !v.former {
+			return nil, fmt.Errorf("%s signed it and can no longer write to %s/%s: %w", userID, v.project, v.env, ErrSignerLeft)
+		}
+		if key, err := v.deviceKey(held, deviceID); err == nil {
+			return key, nil
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", userID, err)
 	}
-	if !allowed(member) {
-		return nil, fmt.Errorf("%s may not sign for %s/%s: %w", userID, v.project, v.env, cloudcrypto.ErrUntrusted)
-	}
+	return nil, fmt.Errorf("%s may not sign for %s/%s: %w", userID, v.project, v.env, cloudcrypto.ErrUntrusted)
+}
+
+// deviceKey returns the signing key of a member's device, from the device
+// certificate their account key signed.
+func (v *verifier) deviceKey(member cloudcrypto.Membership, deviceID string) (ed25519.PublicKey, error) {
 	for _, d := range v.devices {
-		if d.UserID != userID || d.ID != deviceID || d.Kind != cloudcrypto.KindDevice {
+		if d.UserID != member.UserID || d.ID != deviceID || d.Kind != cloudcrypto.KindDevice {
 			continue
 		}
 		cert := d.certificate()
 		if err := cert.Verify(member.AccountKey); err != nil || len(cert.SigningKey) != ed25519.PublicKeySize {
-			return nil, fmt.Errorf("device %s of %s: %w", deviceID, userID, cloudcrypto.ErrUntrusted)
+			return nil, fmt.Errorf("device %s of %s: %w", deviceID, member.UserID, cloudcrypto.ErrUntrusted)
 		}
 		return cert.SigningKey, nil
 	}
-	return nil, fmt.Errorf("device %s of %s is unknown: %w", deviceID, userID, cloudcrypto.ErrUntrusted)
+	return nil, fmt.Errorf("device %s of %s is unknown: %w", deviceID, member.UserID, cloudcrypto.ErrUntrusted)
 }
 
 // key unwraps the environment key of the payload's epoch with one of

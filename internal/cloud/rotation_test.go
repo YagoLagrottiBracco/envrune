@@ -29,7 +29,7 @@ func TestGuidedRotationWaitsForNewValues(t *testing.T) {
 
 	// Removing bob starts a new epoch, which encrypts both values again.
 	// Bob still knows them, so both wait for a new value.
-	must[[]string](t)(alice.RemoveMember(ctx, "acme", "bob"))
+	must[*Handover](t)(alice.RemoveMember(ctx, "acme", "bob"))
 	tasks := must[[]RotationTask](t)(alice.Rotation(ctx, "acme"))
 	if len(tasks) != 1 || tasks[0].Subject != "bob" || tasks[0].Reason != "member removed" || tasks[0].Pending() != 2 {
 		t.Fatalf("after the removal: %+v", tasks)
@@ -76,7 +76,7 @@ func TestRevokedTokensStartGuidedRotation(t *testing.T) {
 		t.Fatalf("after the revocation: %+v", tasks)
 	}
 	// The key the token held is replaced, and the value still waits.
-	must[uint64](t)(alice.Rotate(ctx, "acme", "shop", "production"))
+	must[uint64](t)(alice.Rotate(ctx, "acme", "shop", "production", false))
 	if task := must[[]RotationTask](t)(alice.Rotation(ctx, "acme"))[0]; task.Pending() != 1 {
 		t.Fatalf("a new epoch rotated the value: %+v", task)
 	}

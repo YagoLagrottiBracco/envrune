@@ -296,13 +296,21 @@ func CachedValues(raw []byte, path Path) (map[string][]byte, string, error) {
 	if err != nil || !me.CanUse(path.Project, path.Env) {
 		return nil, "", fmt.Errorf("you may not use %s", path)
 	}
+	// A copy from before a member left holds their signatures, which no
+	// longer verify; the removal gave the environment a new epoch to pull.
+	stale := func(err error) error {
+		if errors.Is(err, ErrSignerLeft) {
+			return fmt.Errorf("this device's copy of %s is from before a member who wrote to it left; run `envrune cloud pull %s`", path, path)
+		}
+		return err
+	}
 	key, err := ver.key(payload, map[string]age.Identity{device.DeviceID: device.Identity}, st.UserID)
 	if err != nil {
-		return nil, "", err
+		return nil, "", stale(err)
 	}
 	defer key.Wipe()
 	// The cache was checked against the versions seen when it was stored;
 	// a newer pull elsewhere moved them forward, which is not a rollback.
 	values, err := ver.open(payload, key, nil, true)
-	return values, me.Role, err
+	return values, me.Role, stale(err)
 }

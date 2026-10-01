@@ -34,7 +34,7 @@ const cloudUsage = `cloud <command>
   pull <org/project/env> [--allow-older]   Refresh this device's copy of an environment
   sync                                     Pull every environment you can use
   share <org>                              Wrap your keys for new members, devices, and tokens
-  rotate <org/project/env>                 Start a new key epoch
+  rotate <org/project/env> [--accept-removed]  Start a new key epoch
   rotation <org> [--all]                   List the values someone who left could read
   rotation accept <org/project/env/name>   Record that a value stays as it is
   token create <org> --scope s[,s] [--name n] [--expires 90d]
@@ -435,7 +435,7 @@ func (w Workspace) cloudMember(argv []string) int {
 		if role == "" || len(scope) == 0 {
 			return w.usageError(usage)
 		}
-		var shared int
+		var h *cloud.Handover
 		if action == "add" {
 			account, err := s.LookupAccount(ctx, who)
 			if err != nil {
@@ -447,26 +447,53 @@ func (w Workspace) cloudMember(argv []string) int {
 				w.status().Error("Not added. Compare the fingerprint first: a different one means the key is not theirs.")
 				return 1
 			}
-			shared, err = s.AddMember(ctx, org, account, role, scope)
-			if err != nil {
-				return w.cloudFail(err)
-			}
-		} else if shared, err = s.ChangeMember(ctx, org, who, role, scope); err != nil {
+			h, err = s.AddMember(ctx, org, account, role, scope)
+		} else {
+			h, err = s.ChangeMember(ctx, org, who, role, scope)
+		}
+		if err != nil {
+			w.handover(org, who, h)
 			return w.cloudFail(err)
 		}
 		w.status().Success(fmt.Sprintf("%s is %s of %s (%s). Shared %d %s.", who, role, org, strings.Join(scope, ", "),
-			shared, plural(shared, "environment", "environments")))
+			h.Shared, plural(h.Shared, "environment", "environments")))
+		w.handover(org, who, h)
 		return 0
 	case "remove":
-		rotated, err := s.RemoveMember(ctx, org, who)
+		h, err := s.RemoveMember(ctx, org, who)
 		if err != nil {
+			w.handover(org, who, h)
 			return w.cloudFail(err)
 		}
-		w.status().Success(fmt.Sprintf("Removed %s. Rotated %d %s: %s.", who, len(rotated), plural(len(rotated), "environment", "environments"), strings.Join(rotated, ", ")))
+		w.status().Success(fmt.Sprintf("Removed %s.", who))
+		w.handover(org, who, h)
 		w.status().Warn(fmt.Sprintf("They may still know the values they could read. `envrune cloud rotation %s` lists each one to replace.", org))
 		return 0
 	}
 	return w.usageError(usage)
+}
+
+// handover reports what a membership change did, or got done before it
+// failed, besides signing the change.
+func (w Workspace) handover(org, who string, h *cloud.Handover) {
+	if h == nil {
+		return
+	}
+	if len(h.Rotated) > 0 {
+		w.status().Info(fmt.Sprintf("Started a new key for %s, and signed again what %s had signed there.", strings.Join(h.Rotated, ", "), who))
+	}
+	if len(h.Reissued) > 0 {
+		w.status().Info(fmt.Sprintf("Signed again the %s %s had signed: %s.", plural(len(h.Reissued), "membership", "memberships"), who, strings.Join(h.Reissued, ", ")))
+	}
+	if len(h.Revoked) > 0 {
+		w.status().Info(fmt.Sprintf("Revoked the machine %s they created: %s. Create new ones for CI.", plural(len(h.Revoked), "token", "tokens"), strings.Join(h.Revoked, ", ")))
+	}
+	for _, env := range h.Left {
+		w.status().Warn(fmt.Sprintf("You do not administer %s, where %s could write or read. Until someone who does runs `envrune cloud rotate %s/%s --accept-removed`, its values may not verify.", env, who, org, env))
+	}
+	if len(h.Orphaned) > 0 {
+		w.status().Warn(fmt.Sprintf("%s had signed %s, which you may not sign: an owner must add them again with `envrune cloud member set`.", who, strings.Join(h.Orphaned, ", ")))
+	}
 }
 
 func (w Workspace) cloudProject(argv []string) int {
@@ -648,20 +675,24 @@ func (w Workspace) cloudShare(argv []string) int {
 }
 
 func (w Workspace) cloudRotate(argv []string) int {
-	if len(argv) != 1 {
-		return w.usageError("cloud rotate <org/project/env>")
+	a, err := parseArgs(argv, nil, []string{"accept-removed"}, false)
+	if err != nil || len(a.positional) != 1 {
+		return w.usageError("cloud rotate <org/project/env> [--accept-removed]")
 	}
-	path, err := cloud.ParsePath(argv[0], false)
+	path, err := cloud.ParsePath(a.positional[0], false)
 	if err != nil {
 		return w.cloudFail(err)
 	}
 	ctx, cancel := cloudContext()
 	defer cancel()
-	epoch, err := w.cloudService().Rotate(ctx, path.Org, path.Project, path.Env)
+	epoch, err := w.cloudService().Rotate(ctx, path.Org, path.Project, path.Env, a.flags["accept-removed"])
 	if err != nil {
 		return w.cloudFail(err)
 	}
-	w.status().Success(fmt.Sprintf("%s is at epoch %d. Its values were encrypted again under the new key.", path, epoch))
+	w.status().Success(fmt.Sprintf("%s is at epoch %d. Its values were encrypted again under the new key, signed by this device.", path, epoch))
+	if a.flags["accept-removed"] {
+		w.status().Warn("What a former member had signed was taken as it was. If a value may have changed since they left, check it and store it again.")
+	}
 	return 0
 }
 

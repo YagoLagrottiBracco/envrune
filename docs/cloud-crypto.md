@@ -177,10 +177,41 @@ signatures that ends at the **organization root**:
 A compromised server can still hide members, refuse service, or show stale
 data; it cannot make a client encrypt to a key no admin signed.
 
-Removing an admin does not invalidate the certificates they issued before;
-the removal certificate (signed like a membership certificate, with role
-`removed`) is checked by clients, and the members that admin added are
-listed for review.
+A removal is a certificate too, signed like a membership certificate with
+the role `removed`. Clients keep every certificate they have verified, so a
+removal they have seen stays in force even if the server hides it later.
+
+### When a signer leaves
+
+Signatures are checked against what the signer may do **now**. A wrapped
+key or a value signed by someone who has since been removed, or who can no
+longer write to that environment, is refused, and so is a membership
+certificate whose issuer may no longer issue it. A signature carries no
+time a client can trust, so a client cannot tell what a member signed
+before leaving from what is signed with their key afterwards, with a
+server's help; refusing both is the only rule that does not depend on the
+server.
+
+So that this does not lock a team out, the change itself hands over what
+the member signed. The CLI that removes or demotes a member:
+
+1. opens every environment the member wrote to or could read, while their
+   signatures still verify;
+2. signs again, as itself, the memberships the member had issued, when its
+   own role allows it, and lists the ones it may not sign;
+3. signs the removal or the new role, and revokes the machine tokens a
+   removed member created, which they have seen;
+4. starts a new epoch in each environment opened in step 1: a new key
+   wrapped for the remaining recipients, and every current value encrypted
+   and signed again by this device.
+
+An environment the member could write to that the remover does not
+administer cannot be handed over this way. It is listed, and its values do
+not verify until someone who administers it runs
+`envrune cloud rotate <env> --accept-removed`. That is the one place where
+a former member's signature is accepted, by an explicit choice: whoever runs
+it vouches that the environment holds what the member left, and from then
+on its values carry that person's signature.
 
 ### Environment keys and epochs
 
@@ -244,7 +275,8 @@ and the panel say so.
 2. The admin's CLI generates a new environment key (epoch + 1) for every
    environment the member could use, wraps it to the remaining devices and
    recovery recipients, and re-encrypts the **current** version of each
-   secret under the new epoch.
+   secret under the new epoch, signed by the admin's device (see
+   [When a signer leaves](#when-a-signer-leaves)).
 3. Guided rotation starts: the panel and `envrune cloud rotation <org>` list
    every secret the member fetched ("this person could read these N
    secrets"). Each one waits until someone writes a new value

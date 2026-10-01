@@ -68,7 +68,7 @@ func join(t *testing.T, f *fakeServer, alice *Service, user, role string, scope 
 	if status := must[*Status](t)(s.Status()); found.Fingerprint != status.AccountFingerprint {
 		t.Fatalf("the admin saw %s, %s sees %s", found.Fingerprint, user, status.AccountFingerprint)
 	}
-	must[int](t)(alice.AddMember(ctx, "acme", found, role, scope))
+	must[*Handover](t)(alice.AddMember(ctx, "acme", found, role, scope))
 	return s
 }
 
@@ -167,7 +167,7 @@ func TestRemovedMembersCannotReadWhatComesNext(t *testing.T) {
 		t.Fatalf("bob read %q", got)
 	}
 
-	rotated := must[[]string](t)(alice.RemoveMember(ctx, "acme", "bob"))
+	rotated := must[*Handover](t)(alice.RemoveMember(ctx, "acme", "bob")).Rotated
 	if len(rotated) != 1 || rotated[0] != "shop/production" {
 		t.Fatalf("rotated %v", rotated)
 	}
@@ -272,7 +272,7 @@ func TestMachineTokensReadTheirScopeWithoutTheServersWord(t *testing.T) {
 	}
 
 	// It keeps working across a rotation, which wraps the new key for it.
-	must[uint64](t)(alice.Rotate(ctx, "acme", "shop", "production"))
+	must[uint64](t)(alice.Rotate(ctx, "acme", "shop", "production", false))
 	must[uint64](t)(alice.Set(ctx, secret("stripe-key"), []byte("sk_live_2")))
 	if values := must[map[string][]byte](t)(read(production)); string(values["stripe-key"]) != "sk_live_2" {
 		t.Fatalf("after rotation the token read %q", values["stripe-key"])
