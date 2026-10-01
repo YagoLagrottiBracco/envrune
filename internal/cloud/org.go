@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"filippo.io/age"
@@ -146,10 +147,13 @@ func wrapAll(device *cloudcrypto.Device, key *cloudcrypto.EnvironmentKey, recipi
 type Org struct {
 	ID, Slug, Name string
 	Role           string
-	Roots          []Root
-	Members        []Member
-	Projects       []Project
-	FirstSeen      bool // the roots were pinned by this call: compare them out of band
+	// Fingerprint names the organization and its roots as this device
+	// pinned them; members compare it when they join.
+	Fingerprint string
+	Roots       []Root
+	Members     []Member
+	Projects    []Project
+	FirstSeen   bool // the roots were pinned by this call: compare them out of band
 }
 
 type Root struct{ UserID, Fingerprint string }
@@ -186,8 +190,15 @@ func (s *Service) Orgs(ctx context.Context) ([]OrgSummary, error) {
 	return c.orgs(ctx)
 }
 
+// MaxExtraRoots is how many accounts may hold an organization's root next
+// to the founder.
+const MaxExtraRoots = 2
+
 // CreateOrg founds an organization; this account's key becomes its root.
-func (s *Service) CreateOrg(ctx context.Context, slug, name string) (*Org, error) {
+// roots are up to MaxExtraRoots more accounts that hold the root with it,
+// each one's fingerprint confirmed by the founder like a new member's. The
+// set cannot change later: every member pins it.
+func (s *Service) CreateOrg(ctx context.Context, slug, name string, roots ...*Account) (*Org, error) {
 	st, c, _, err := s.ready()
 	if err != nil {
 		return nil, err
@@ -196,17 +207,86 @@ func (s *Service) CreateOrg(ctx context.Context, slug, name string) (*Org, error
 	if err != nil {
 		return nil, err
 	}
-	if err := c.createOrg(ctx, slug, name); err != nil {
+	if len(roots) > MaxExtraRoots {
+		return nil, fmt.Errorf("an organization has at most %d more root holders", MaxExtraRoots)
+	}
+	want := map[string]ed25519.PublicKey{st.UserID: account.Public}
+	ids := make([]string, 0, len(roots))
+	for _, r := range roots {
+		if _, dup := want[r.UserID]; dup {
+			return nil, fmt.Errorf("%s is named twice as a root holder", r.UserID)
+		}
+		want[r.UserID] = r.Key
+		ids = append(ids, r.UserID)
+	}
+	if err := c.createOrg(ctx, slug, name, ids); err != nil {
 		return nil, err
 	}
 	v, err := s.view(ctx, c, slug)
 	if err != nil {
 		return nil, err
 	}
-	if root := v.trust.Roots[st.UserID]; len(v.trust.Roots) != 1 || !root.Equal(account.Public) {
-		return nil, fmt.Errorf("the server pinned another root for %s than your account key: %w", slug, cloudcrypto.ErrUntrusted)
+	// The roots the server recorded must be exactly the keys chosen here.
+	same := len(v.trust.Roots) == len(want)
+	for id, key := range want {
+		same = same && key.Equal(v.trust.Roots[id])
+	}
+	if !same {
+		// Do not keep a pin on roots nobody chose.
+		_ = s.update(func(st *State) error { delete(st.Orgs, slug); return nil })
+		return nil, fmt.Errorf("the server recorded other roots for %s than the ones you chose: %w", slug, cloudcrypto.ErrUntrusted)
+	}
+	org := v.describe(st.UserID)
+	org.FirstSeen = false
+	return org, nil
+}
+
+// JoinOrg pins an organization's roots on this device only if they are the
+// ones the member was told about: fingerprint is what the person who added
+// them sent, over a channel the server does not control. Without it, a
+// device trusts whatever roots the server shows it first.
+func (s *Service) JoinOrg(ctx context.Context, slug, fingerprint string) (*Org, error) {
+	st, c, err := s.signedIn()
+	if err != nil {
+		return nil, err
+	}
+	snap, err := c.snapshot(ctx, slug)
+	if err != nil {
+		return nil, err
+	}
+	shown := map[string][]byte{}
+	for _, r := range snap.Roots {
+		shown[r.UserID] = r.AccountKey
+	}
+	want := normalizeFingerprint(fingerprint)
+	err = s.update(func(st *State) error {
+		trust := cloudcrypto.Trust{OrgID: snap.ID, Roots: pinned(shown)}
+		if o := st.Orgs[slug]; o != nil && o.ID != "" {
+			// Already pinned: it is the pin that must match.
+			trust = cloudcrypto.Trust{OrgID: o.ID, Roots: pinned(o.Roots)}
+		}
+		if len(trust.Roots) == 0 || trust.Fingerprint() != want {
+			return fmt.Errorf("%s has the fingerprint %s here, not the one you were given; do not use it until you know why: %w",
+				slug, trust.Fingerprint(), cloudcrypto.ErrUntrusted)
+		}
+		if o := st.org(slug); o.ID == "" {
+			o.ID, o.Roots = snap.ID, shown
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	v, err := s.view(ctx, c, slug)
+	if err != nil {
+		return nil, err
 	}
 	return v.describe(st.UserID), nil
+}
+
+// normalizeFingerprint forgives case and spacing in a typed fingerprint.
+func normalizeFingerprint(text string) string {
+	return strings.ToUpper(strings.Join(strings.Fields(text), ""))
 }
 
 func (s *Service) ShowOrg(ctx context.Context, slug string) (*Org, error) {
@@ -222,10 +302,11 @@ func (s *Service) ShowOrg(ctx context.Context, slug string) (*Org, error) {
 }
 
 func (v *view) describe(self string) *Org {
-	o := &Org{ID: v.snap.ID, Slug: v.snap.Slug, Name: v.snap.Name, FirstSeen: v.firstSeen}
+	o := &Org{ID: v.snap.ID, Slug: v.snap.Slug, Name: v.snap.Name, FirstSeen: v.firstSeen, Fingerprint: v.trust.Fingerprint()}
 	for user, key := range v.trust.Roots {
 		o.Roots = append(o.Roots, Root{UserID: user, Fingerprint: cloudcrypto.Fingerprint(key)})
 	}
+	slices.SortFunc(o.Roots, func(a, b Root) int { return strings.Compare(a.UserID, b.UserID) })
 	for _, m := range v.snap.Members {
 		if m.Role == cloudcrypto.RoleRemoved {
 			continue
@@ -304,6 +385,9 @@ type Handover struct {
 	// Revoked lists the machine tokens a removed member had created, and so
 	// had seen.
 	Revoked []string
+	// OrgFingerprint is the organization's fingerprint as this device pinned
+	// it, for the member to check when they join.
+	OrgFingerprint string
 }
 
 // AddMember signs a membership for an account whose fingerprint the admin
@@ -388,7 +472,7 @@ func (s *Service) certify(ctx context.Context, org, userID string, key ed25519.P
 	}
 	removal := role == cloudcrypto.RoleRemoved
 	after := cloudcrypto.Membership{UserID: userID, AccountKey: key, Role: role, Scope: scope}
-	h := &Handover{}
+	h := &Handover{OrgFingerprint: v.trust.Fingerprint()}
 
 	type pending struct {
 		project, env string
@@ -402,7 +486,11 @@ func (s *Service) certify(ctx context.Context, org, userID string, key ed25519.P
 			}
 		}
 	}()
-	if before, err := v.trust.Verify(v.certs, userID); err == nil && !before.Root {
+	before, err := v.trust.Verify(v.certs, userID)
+	if err == nil && before.Root {
+		return nil, fmt.Errorf("%s holds the root of %s: root holders cannot be changed or removed", userID, org)
+	}
+	if err == nil {
 		for _, p := range v.snap.Projects {
 			for _, e := range p.Environments {
 				if !(removal && before.CanUse(p.Slug, e.Slug)) && !(before.CanAdminister(p.Slug, e.Slug) && !after.CanAdminister(p.Slug, e.Slug)) {

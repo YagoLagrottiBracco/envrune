@@ -1,7 +1,8 @@
-import { authenticated, body, fromPostgres, handle, requireString, rpc } from "@/lib/api";
+import { authenticated, body, fromPostgres, handle, requireString, requireStrings, rpc } from "@/lib/api";
 
 // GET: the organizations the caller belongs to, with their role.
-// POST: found an organization; the caller's account key becomes its root.
+// POST: found an organization; the caller's account key becomes its root,
+// with up to two more accounts (roots: user ids) holding it too.
 
 export const GET = handle(async (request) => {
   const { client, userId } = await authenticated(request);
@@ -18,8 +19,9 @@ export const GET = handle(async (request) => {
 
 export const POST = handle(async (request) => {
   const { client } = await authenticated(request);
-  const b = await body<{ slug: string; name?: string }>(request);
+  const b = await body<{ slug: string; name?: string; roots?: string[] }>(request);
   const slug = requireString(b.slug, "slug", 40);
-  const id = await rpc<string>(client, "create_organization", { p_slug: slug, p_name: b.name || slug });
+  const roots = requireStrings(b.roots ?? [], "roots");
+  const id = await rpc<string>(client, "create_organization", { p_slug: slug, p_name: b.name || slug, p_roots: roots });
   return Response.json({ id, slug }, { status: 201 });
 });

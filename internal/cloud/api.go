@@ -61,8 +61,8 @@ func (c *Client) orgs(ctx context.Context) ([]OrgSummary, error) {
 	return out, c.call(ctx, http.MethodGet, "/orgs", nil, nil, &out)
 }
 
-func (c *Client) createOrg(ctx context.Context, slug, name string) error {
-	return c.call(ctx, http.MethodPost, "/orgs", nil, map[string]string{"slug": slug, "name": name}, nil)
+func (c *Client) createOrg(ctx context.Context, slug, name string, roots []string) error {
+	return c.call(ctx, http.MethodPost, "/orgs", nil, map[string]any{"slug": slug, "name": name, "roots": nonNil(roots)}, nil)
 }
 
 func (c *Client) snapshot(ctx context.Context, slug string) (*Snapshot, error) {

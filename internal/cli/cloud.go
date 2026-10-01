@@ -22,7 +22,9 @@ const cloudUsage = `cloud <command>
   init [--name device]                     Create your account, or register this device
   recover [--name device]                  Set up this device with your recovery key
   device list | approve <id> | revoke <id>
-  org list | create <org> [--name n] | show <org>
+  org list | show <org>
+  org create <org> [--name n] [--roots email[,email]]   Up to two more root holders
+  org join <org> --fingerprint f           Trust an organization you were added to
   member add <org> <email> --role r --scope s[,s]
   member set <org> <user-id> --role r --scope s[,s]
   member remove <org> <user-id>
@@ -330,8 +332,8 @@ func (w Workspace) cloudDevice(argv []string) int {
 }
 
 func (w Workspace) cloudOrg(argv []string) int {
-	const usage = "cloud org list | create <org> [--name <name>] | show <org>"
-	a, err := parseArgs(argv, []string{"name"}, nil, false)
+	const usage = "cloud org list | create <org> [--name <name>] [--roots <email[,email]>] | show <org> | join <org> --fingerprint <fingerprint>"
+	a, err := parseArgs(argv, []string{"name", "roots", "fingerprint"}, nil, false)
 	if err != nil || len(a.positional) == 0 {
 		return w.usageError(usage)
 	}
@@ -356,12 +358,48 @@ func (w Workspace) cloudOrg(argv []string) int {
 		if name == "" {
 			name = a.positional[1]
 		}
-		org, err := s.CreateOrg(ctx, a.positional[1], name)
+		emails := splitScope(a.options["roots"])
+		if len(emails) > cloud.MaxExtraRoots {
+			w.status().Error(fmt.Sprintf("An organization has at most %d more root holders.", cloud.MaxExtraRoots))
+			return 2
+		}
+		// A root holder can sign anyone into the organization, forever: the
+		// founder confirms each key like a new member's, before it exists.
+		var roots []*cloud.Account
+		for _, email := range emails {
+			account, err := s.LookupAccount(ctx, email)
+			if err != nil {
+				return w.cloudFail(err)
+			}
+			w.status().Info(fmt.Sprintf("The server says %s has this account fingerprint:", email))
+			fmt.Fprintf(w.Stderr, "\n    %s\n\n", account.Fingerprint)
+			if !w.confirmChoice(fmt.Sprintf("Did %s confirm the same fingerprint (`envrune cloud whoami`) over another channel?", email)) {
+				w.status().Error("Not created. A root holder can add anyone to the organization, and can never be removed: compare the fingerprint first.")
+				return 1
+			}
+			roots = append(roots, account)
+		}
+		org, err := s.CreateOrg(ctx, a.positional[1], name, roots...)
 		if err != nil {
 			return w.cloudFail(err)
 		}
-		w.status().Success(fmt.Sprintf("Created %s. Your account key is its root.", org.Slug))
-		w.status().Info("Members compare this root fingerprint when they join: " + org.Roots[0].Fingerprint)
+		if len(roots) == 0 {
+			w.status().Success(fmt.Sprintf("Created %s. Your account key is its root.", org.Slug))
+			w.status().Info("If you lose every device and your recovery key, nobody can add owners or admins to it again. `--roots` names up to two more root holders, only when creating it.")
+		} else {
+			w.status().Success(fmt.Sprintf("Created %s. Its root is your account key and %s; this cannot change.", org.Slug, strings.Join(emails, " and ")))
+		}
+		w.status().Info("Organization fingerprint, which members check when they join: " + org.Fingerprint)
+		return 0
+	case len(a.positional) == 2 && a.positional[0] == "join":
+		if a.options["fingerprint"] == "" {
+			return w.usageError(usage)
+		}
+		org, err := s.JoinOrg(ctx, a.positional[1], a.options["fingerprint"])
+		if err != nil {
+			return w.cloudFail(err)
+		}
+		w.status().Success(fmt.Sprintf("%s is the organization you were told about. You are %s. Run `envrune cloud sync` to fetch its environments.", org.Slug, org.Role))
 		return 0
 	case len(a.positional) == 2 && a.positional[0] == "show":
 		org, err := s.ShowOrg(ctx, a.positional[1])
@@ -376,10 +414,11 @@ func (w Workspace) cloudOrg(argv []string) int {
 
 func (w Workspace) printOrg(org *cloud.Org) {
 	if org.FirstSeen {
-		w.status().Warn("This device pinned the organization's root now. Compare its fingerprint with a member out of band.")
+		w.status().Warn("This device trusted the organization's root as the server showed it. Compare the fingerprint below with a member over another channel.")
 	}
 	out := tabwriter.NewWriter(w.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintf(out, "%s\t%s\n", org.Slug, org.Name)
+	fmt.Fprintf(out, "fingerprint\t%s\n", org.Fingerprint)
 	for _, r := range org.Roots {
 		fmt.Fprintf(out, "root\t%s\t%s\n", r.UserID, r.Fingerprint)
 	}
@@ -458,6 +497,10 @@ func (w Workspace) cloudMember(argv []string) int {
 		w.status().Success(fmt.Sprintf("%s is %s of %s (%s). Shared %d %s.", who, role, org, strings.Join(scope, ", "),
 			h.Shared, plural(h.Shared, "environment", "environments")))
 		w.handover(org, who, h)
+		if action == "add" {
+			w.status().Info("Send them this over a channel the server does not control, such as the call where you compared fingerprints:")
+			fmt.Fprintf(w.Stdout, "\n    envrune cloud org join %s --fingerprint %s\n\n", org, h.OrgFingerprint)
+		}
 		return 0
 	case "remove":
 		h, err := s.RemoveMember(ctx, org, who)

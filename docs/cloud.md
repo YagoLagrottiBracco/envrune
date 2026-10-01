@@ -47,6 +47,34 @@ gave for that person's account. Ask them to run `envrune cloud whoami` and
 compare over another channel, such as a call. A different fingerprint means
 the key is not theirs; do not add it.
 
+`member add` ends by printing an invitation for the new member:
+
+```sh
+envrune cloud org join acme --fingerprint K7QD-2MXA-P9FE-…
+```
+
+Send it over that same channel, not through the server. It makes the new
+member's device trust the organization only if it is the one you created:
+the fingerprint covers the organization and its root keys. A member who
+skips it trusts what the server shows first; `envrune cloud org show` tells
+them so and shows the fingerprint to compare.
+
+### Root holders
+
+Your account key is the organization's **root**: every membership traces
+back to it. If you lose every device and your recovery key, nobody can add
+owners or admins again. To avoid depending on one person, name up to two
+more root holders **when creating the organization**:
+
+```sh
+envrune cloud org create acme --roots bob@example.com,carol@example.com
+```
+
+Each must have run `envrune cloud init`, and you confirm each one's
+fingerprint as for a member. A root holder is an owner who can never be
+removed or changed, and the set cannot change later, so choose people who
+will stay.
+
 Roles:
 
 | Role | Can |

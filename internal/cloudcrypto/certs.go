@@ -164,6 +164,21 @@ type Trust struct {
 	Roots map[string]ed25519.PublicKey // user id → account key
 }
 
+// Fingerprint names the organization and its whole set of roots, for
+// members to compare with the one they were given when they join.
+func (t Trust) Fingerprint() string {
+	holders := make([]string, 0, len(t.Roots))
+	for id := range t.Roots {
+		holders = append(holders, id)
+	}
+	slices.Sort(holders)
+	parts := [][]byte{str("organization"), str(t.OrgID)}
+	for _, id := range holders {
+		parts = append(parts, str(id), t.Roots[id])
+	}
+	return Fingerprint(parts...)
+}
+
 var errNoMembership = errors.New("no valid membership")
 
 // Verify returns the current membership of userID, reached through a chain

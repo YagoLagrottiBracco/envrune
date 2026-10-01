@@ -44,7 +44,10 @@ type fakeServer struct {
 	fetched   map[string]map[string]bool
 	rotations []*fakeRotation
 	audits    map[string][]AuditEntry // org id → its chain
-	auditID   int64
+	// injectRoot is a root of its own that a lying server adds to every
+	// organization founded.
+	injectRoot *accountKeyJSON
+	auditID    int64
 }
 
 type fakeProfile struct{ key, backup []byte }
@@ -299,13 +302,32 @@ func (f *fakeServer) getOrgs(user string, _ *http.Request) (any, int, error) {
 }
 
 func (f *fakeServer) postOrg(user string, r *http.Request) (any, int, error) {
-	b := decode[struct{ Slug, Name string }](r)
+	b := decode[struct {
+		Slug, Name string
+		Roots      []string
+	}](r)
 	if f.profiles[user] == nil {
 		return fail(404, errNotFound)
 	}
-	o := &fakeOrg{id: "org-" + b.Slug, slug: b.Slug, name: b.Name, roots: []accountKeyJSON{{UserID: user, AccountKey: f.profiles[user].key}}}
+	if len(b.Roots) > 2 {
+		return fail(400, fmt.Errorf("an organization has at most two more root holders"))
+	}
+	o := &fakeOrg{id: "org-" + b.Slug, slug: b.Slug, name: b.Name}
+	f.members[o.id] = map[string]memberJSON{}
+	for _, holder := range append([]string{user}, b.Roots...) {
+		if f.profiles[holder] == nil {
+			return fail(404, errNotFound)
+		}
+		if _, dup := f.members[o.id][holder]; dup {
+			return fail(409, fmt.Errorf("exists"))
+		}
+		o.roots = append(o.roots, accountKeyJSON{UserID: holder, AccountKey: f.profiles[holder].key})
+		f.members[o.id][holder] = memberJSON{UserID: holder, Role: "owner", Scope: []string{"*"}}
+	}
+	if f.injectRoot != nil {
+		o.roots = append(o.roots, *f.injectRoot)
+	}
 	f.orgs = append(f.orgs, o)
-	f.members[o.id] = map[string]memberJSON{user: {UserID: user, Role: "owner", Scope: []string{"*"}}}
 	f.audit(o.id, user, "org.create", o.slug, `{}`)
 	return map[string]string{"id": o.id}, 201, nil
 }
@@ -401,6 +423,9 @@ func (f *fakeServer) postMember(user string, r *http.Request) (any, int, error) 
 	}
 	if f.profiles[b.UserID] == nil {
 		return fail(404, errNotFound)
+	}
+	if slices.ContainsFunc(o.roots, func(r accountKeyJSON) bool { return r.UserID == b.UserID }) {
+		return fail(403, fmt.Errorf("root holders cannot be changed"))
 	}
 	f.certs = append(f.certs, certJSON{OrgID: o.id, UserID: b.UserID, AccountKey: f.profiles[b.UserID].key, Role: b.Role, Scope: b.Scope,
 		IssuedAtUS: b.IssuedAtUS, IssuerID: user, Signature: b.Signature})

@@ -4,7 +4,7 @@
 -- member. Signatures are placeholders: the database does not check them;
 -- the API and every client do.
 begin;
-select plan(39);
+select plan(43);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'alice@example.com'),
@@ -45,9 +45,20 @@ select public.create_project(:'org', 'shop', 'Shop') as project \gset
 select public.create_environment(:'project', 'production') as env \gset
 select public.create_environment(:'project', 'staging') as staging \gset
 select is((select role from public.org_members where user_id = auth.uid()), 'owner', 'the founder is an owner');
-select is((select count(*)::int from public.org_roots), 1, 'the founder is the root');
+select is((select count(*)::int from public.org_roots where org_id = :'org'), 1, 'the founder is the root');
 
 select public.add_membership(:'org', '00000000-0000-0000-0000-00000000000b', 'admin', '{shop/*}', 1, pg_temp.sig());
+
+-- Up to two more accounts hold the root, named when the organization is
+-- founded; they are owners nobody can change.
+select public.create_organization('trio', 'Trio', array['00000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-00000000000c']::uuid[]) as trio \gset
+select is((select count(*)::int from public.org_roots where org_id = :'trio'), 3, 'an organization may have two more root holders');
+select is((select role from public.org_members where org_id = :'trio' and user_id = '00000000-0000-0000-0000-00000000000c'), 'owner',
+  'a root holder is an owner');
+select throws_ok($$ select public.create_organization('quartet', 'Quartet', array['00000000-0000-0000-0000-00000000000b',
+  '00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d']::uuid[]) $$, '22023', null, 'never more than two');
+select throws_ok(format($$ select public.add_membership(%L, '00000000-0000-0000-0000-00000000000c', 'removed', '{*}', 9, pg_temp.sig()) $$, :'trio'),
+  '42501', null, 'not even the founder removes a root holder');
 
 -- bob manages members within his scope only.
 select pg_temp.become('00000000-0000-0000-0000-00000000000b');

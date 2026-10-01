@@ -128,7 +128,21 @@ func TestEndToEnd(t *testing.T) {
 	if found.Fingerprint != must[*Status](t)(bob.Status()).AccountFingerprint {
 		t.Fatal("the fingerprints differ")
 	}
-	must[*Handover](t)(alice.AddMember(ctx, org, found, cloudcrypto.RoleConsumer, []string{"shop/production"}))
+	invited := must[*Handover](t)(alice.AddMember(ctx, org, found, cloudcrypto.RoleConsumer, []string{"shop/production"}))
+	if _, err := bob.JoinOrg(ctx, org, "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF"); err == nil {
+		t.Fatal("bob joined with a fingerprint that is not the organization's")
+	}
+	if joined := must[*Org](t)(bob.JoinOrg(ctx, org, invited.OrgFingerprint)); joined.Role != cloudcrypto.RoleConsumer {
+		t.Fatalf("bob joined as %+v", joined)
+	}
+	// An organization with a second root holder, who signs members alone.
+	trio := must[*Org](t)(alice.CreateOrg(ctx, org+"-b", "Two roots", found))
+	if len(trio.Roots) != 2 {
+		t.Fatalf("the second organization has %d roots", len(trio.Roots))
+	}
+	if joined := must[*Org](t)(bob.JoinOrg(ctx, org+"-b", trio.Fingerprint)); joined.Role != cloudcrypto.RoleOwner {
+		t.Fatalf("the second root holder is %+v", joined)
+	}
 	if got, role := read(t, bob, prod); got != "sk_live_1" || role != cloudcrypto.RoleConsumer {
 		t.Fatalf("bob read %q as %s", got, role)
 	}

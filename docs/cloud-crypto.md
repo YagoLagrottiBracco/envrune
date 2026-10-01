@@ -94,7 +94,8 @@ device keys, one set per device, private parts only in the local vault
 environment key (32 random bytes), one per project environment and epoch
  └─ encrypts ─▶ secret values (XChaCha20-Poly1305)
 
-organization root = the founder's account public key, pinned by every member
+organization root = the founder's account public key, and those of up to two
+                    more root holders, pinned as a set by every member
  └─ signs, directly or through admins ─▶ membership certificates
 ```
 
@@ -154,9 +155,21 @@ Every public key a client encrypts to is reached through a chain of
 signatures that ends at the **organization root**:
 
 - Creating an organization pins the founder's account public key as its
-  root. Each member's CLI stores the root the first time it joins, and shows
-  its fingerprint (`envrune cloud org show`); an invitation link also carries it,
-  so a member can compare it out of band.
+  root, together with the keys of up to two more **root holders** named at
+  that moment (`envrune cloud org create --roots`). The founder confirms each
+  one's fingerprint first, as for a new member, and the founder's CLI checks
+  that the server recorded exactly the keys chosen. The set never changes:
+  a root holder is an owner who cannot be removed, and any of them can sign
+  owners and admins, so the organization survives one person losing every
+  device and the recovery key.
+- Each member's CLI stores the roots the first time it sees the
+  organization. The **organization fingerprint** covers the organization's
+  id and the whole set of roots. `envrune cloud member add` prints the
+  invitation to send to the new member over a channel the server does not
+  control: `envrune cloud org join <org> --fingerprint <fingerprint>`, which
+  stores the roots only if they match. A member who skips it trusts the
+  roots the server shows first, and is told to compare the fingerprint
+  (`envrune cloud org show`).
 - A **membership certificate** is signed by the root or by an admin whose own
   membership certificate chains to the root:
 
@@ -412,9 +425,15 @@ an explicit opt-in with that trade-off explained.
 1. **Organization root recovery.** If the founder loses their devices and
    recovery key, the organization cannot sign new admins. Proposal: at
    creation, allow up to two more **root holders** whose account keys the
-   founder signs as roots; any root can sign admins.
+   founder signs as roots; any root can sign admins. *Adopted, with one
+   change:* the founder does not sign the other roots. The roots are the
+   trust anchor every member pins as a set, so a signature of one root over
+   another would add nothing the pinned set does not already say; what
+   protects the set is that the founder's CLI checks it at creation and
+   members check its fingerprint when they join.
 2. **Consumer and `mcp`.** Should `mcp --allow-any-command` be refused for
    consumers, since it turns masking into the only barrier? Proposal: yes.
+   *Adopted.*
 3. **Offline expiry.** Should the cache expire (for example, 30 days without
    sync) so a removed member's laptop stops working on its own? It does not
    protect values they already had, but limits drift. Proposal: configurable

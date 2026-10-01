@@ -421,18 +421,34 @@ end $$;
 
 -- ---------------------------------------------------------------- organizations and members
 
-create or replace function public.create_organization(p_slug text, p_name text) returns uuid
+-- The founder's account key is the organization's root. Up to two more
+-- accounts may hold the root with it, chosen now and never changed, so the
+-- organization survives one person losing every device and the recovery
+-- key. Members pin the whole set the first time they see the organization.
+create or replace function public.create_organization(p_slug text, p_name text, p_roots uuid[] default '{}') returns uuid
 language plpgsql security definer set search_path = '' as $$
-declare me uuid := private.caller(); key bytea; o uuid;
+declare me uuid := private.caller(); key bytea; o uuid; holder uuid;
 begin
   select account_key into key from public.profiles where user_id = me;
   if key is null then
     raise exception 'register the account first' using errcode = 'P0002';
   end if;
+  if coalesce(array_length(p_roots, 1), 0) > 2 then
+    raise exception 'an organization has at most two more root holders' using errcode = '22023';
+  end if;
   insert into public.organizations (slug, name, created_by) values (p_slug, p_name, me) returning id into o;
   insert into public.org_roots (org_id, user_id, account_key) values (o, me, key);
   insert into public.org_members (org_id, user_id, role, scope) values (o, me, 'owner', '{*}');
-  perform private.audit(o, 'org.create', p_slug);
+  foreach holder in array coalesce(p_roots, '{}') loop
+    select account_key into key from public.profiles where user_id = holder;
+    if not found then
+      raise exception 'root holder % has no EnvRune account yet', holder using errcode = 'P0002';
+    end if;
+    -- Naming the founder or one account twice fails on the primary key.
+    insert into public.org_roots (org_id, user_id, account_key) values (o, holder, key);
+    insert into public.org_members (org_id, user_id, role, scope) values (o, holder, 'owner', '{*}');
+  end loop;
+  perform private.audit(o, 'org.create', p_slug, jsonb_build_object('roots', 1 + coalesce(array_length(p_roots, 1), 0)));
   return o;
 end $$;
 
