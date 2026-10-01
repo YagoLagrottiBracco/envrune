@@ -32,7 +32,10 @@ create table public.organizations (
   slug       text not null unique check (slug ~ '^[a-z][a-z0-9-]{1,38}$'),
   name       text not null check (length(name) between 1 and 100),
   created_by uuid not null references auth.users,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- How long a device may use its last copy of an environment without
+  -- syncing; null means forever. Devices enforce it; see docs/cloud-crypto.md.
+  offline_days integer check (offline_days between 1 and 365)
 );
 
 -- The account keys every member pins as the organization's root.
@@ -450,6 +453,22 @@ begin
   end loop;
   perform private.audit(o, 'org.create', p_slug, jsonb_build_object('roots', 1 + coalesce(array_length(p_roots, 1), 0)));
   return o;
+end $$;
+
+-- Sets how many days a device may go without syncing before it refuses its
+-- copy of an environment; null turns the limit off.
+create or replace function public.set_offline_days(p_org uuid, p_days integer) returns void
+language plpgsql security definer set search_path = '' as $$
+declare me uuid := private.caller();
+begin
+  if not private.is_org_admin(p_org, me) then
+    raise exception 'only owners and admins change the offline limit' using errcode = '42501';
+  end if;
+  if p_days is not null and p_days not between 1 and 365 then
+    raise exception 'the offline limit is 1 to 365 days, or none' using errcode = '22023';
+  end if;
+  update public.organizations set offline_days = p_days where id = p_org;
+  perform private.audit(p_org, 'org.offline_days', coalesce(p_days::text, 'off'));
 end $$;
 
 -- Records a membership certificate signed by the caller, who must be an

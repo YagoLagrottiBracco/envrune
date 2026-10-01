@@ -51,6 +51,10 @@ func (s *Service) view(ctx context.Context, c *Client, slug string) (*view, erro
 			return ErrOrgChanged
 		}
 		o.Certificates = mergeCerts(o.Certificates, snap.Certificates)
+		o.OfflineDays = 0
+		if snap.OfflineDays != nil {
+			o.OfflineDays = *snap.OfflineDays
+		}
 		v.trust = cloudcrypto.Trust{OrgID: o.ID, Roots: pinned(o.Roots)}
 		v.certs = certificates(o.Certificates)
 		return nil
@@ -150,6 +154,9 @@ type Org struct {
 	// Fingerprint names the organization and its roots as this device
 	// pinned them; members compare it when they join.
 	Fingerprint string
+	// OfflineDays is how long devices may use an environment without
+	// syncing; zero means forever.
+	OfflineDays int
 	Roots       []Root
 	Members     []Member
 	Projects    []Project
@@ -289,6 +296,30 @@ func normalizeFingerprint(text string) string {
 	return strings.ToUpper(strings.Join(strings.Fields(text), ""))
 }
 
+// MaxOfflineDays is the longest offline limit an organization can set.
+const MaxOfflineDays = 365
+
+// SetOfflineDays sets how many days the organization's members may use
+// their last copy of an environment without syncing; zero turns the limit
+// off. Devices learn it the next time they talk to the server and enforce
+// it themselves: it makes a laptop that stopped syncing, such as a removed
+// member's, stop working on its own. It does not stop someone who changes
+// their clock or their CLI, and takes back no value they already saw.
+func (s *Service) SetOfflineDays(ctx context.Context, slug string, days int) error {
+	_, c, err := s.signedIn()
+	if err != nil {
+		return err
+	}
+	if days < 0 || days > MaxOfflineDays {
+		return fmt.Errorf("the offline limit is 1 to %d days, or 0 for none", MaxOfflineDays)
+	}
+	if err := c.setOfflineDays(ctx, slug, days); err != nil {
+		return err
+	}
+	_, err = s.view(ctx, c, slug)
+	return err
+}
+
 func (s *Service) ShowOrg(ctx context.Context, slug string) (*Org, error) {
 	st, c, err := s.signedIn()
 	if err != nil {
@@ -307,6 +338,9 @@ func (v *view) describe(self string) *Org {
 		o.Roots = append(o.Roots, Root{UserID: user, Fingerprint: cloudcrypto.Fingerprint(key)})
 	}
 	slices.SortFunc(o.Roots, func(a, b Root) int { return strings.Compare(a.UserID, b.UserID) })
+	if v.snap.OfflineDays != nil {
+		o.OfflineDays = *v.snap.OfflineDays
+	}
 	for _, m := range v.snap.Members {
 		if m.Role == cloudcrypto.RoleRemoved {
 			continue

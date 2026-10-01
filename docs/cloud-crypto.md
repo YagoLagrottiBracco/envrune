@@ -330,6 +330,16 @@ data key. `run` and the other commands read from this cache, so they work
 offline with the last synced state. `envrune cloud sync` (and every online
 command) refreshes it.
 
+An organization may limit how long a copy is used without syncing
+(`envrune cloud org set <org> --offline-days 30`; off by default). Each
+device learns the limit when it talks to the server and then refuses a copy
+older than it until it syncs again, which a removed member's device cannot
+do. Like the consumer role, this is enforced by the CLI: it stops a laptop
+that was forgotten or kept, not someone who sets the clock back or changes
+the CLI, and it takes back no value already seen. The limit is not signed:
+the server could raise or lift it, which gains the server nothing, since
+the limit guards against a device that stays away from the server.
+
 ### envrune.team.json
 
 The team file stays what it is: the serverless way to share a few secrets
@@ -437,6 +447,7 @@ an explicit opt-in with that trade-off explained.
 3. **Offline expiry.** Should the cache expire (for example, 30 days without
    sync) so a removed member's laptop stops working on its own? It does not
    protect values they already had, but limits drift. Proposal: configurable
-   per organization, off by default.
+   per organization, off by default. *Adopted:* see
+   [Local cache and offline use](#local-cache-and-offline-use).
 4. **Sign-in methods.** Supabase Auth with email links and GitHub OAuth for the
    MVP; SAML SSO and SCIM after it.

@@ -251,6 +251,16 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("a consumer's rotation was not refused on the device: %v", err)
 	}
 
+	// The offline limit is the admins' to set, and members' devices learn it.
+	if err := bob.SetOfflineDays(ctx, org, 30); err == nil {
+		t.Fatal("a consumer set the offline limit")
+	}
+	ok(t, alice.SetOfflineDays(ctx, org, 30))
+	if shown := must[*Org](t)(bob.ShowOrg(ctx, org)); shown.OfflineDays != 30 {
+		t.Fatalf("bob's device learned a limit of %d days", shown.OfflineDays)
+	}
+	ok(t, alice.SetOfflineDays(ctx, org, 0))
+
 	// The audit log's chain, as the database hashed it, verifies on the
 	// device, and tells what happened above.
 	audit := must[*AuditExport](t)(alice.Audit(ctx, org))
@@ -259,7 +269,7 @@ func TestEndToEnd(t *testing.T) {
 		seen[entry.Action] = true
 	}
 	for _, action := range []string{"org.create", "member.consumer", "member.removed", "device.approve", "key.share", "secret.write",
-		"secret.reencrypt", "environment.fetch", "environment.rotate", "token.create", "token.revoke", "rotation.accepted"} {
+		"secret.reencrypt", "environment.fetch", "environment.rotate", "token.create", "token.revoke", "rotation.accepted", "org.offline_days"} {
 		if !seen[action] {
 			t.Errorf("the audit log has no %s", action)
 		}

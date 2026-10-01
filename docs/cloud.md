@@ -167,6 +167,21 @@ later export that no longer holds it; `--since` does the same between two
 files. Export regularly and keep the files where the server cannot change
 them: that is what makes rewriting the log detectable.
 
+### Limiting offline use
+
+By default a device keeps working with its last synced copy for as long as
+it stays offline. An owner or admin can limit that:
+
+```sh
+envrune cloud org set acme --offline-days 30   # or: off
+```
+
+After 30 days without syncing an environment, commands that need it stop
+and ask for `envrune cloud pull`. A removed member's device cannot pull, so
+it stops working by itself. This limits how long a forgotten or kept laptop
+stays useful; it does not take back values someone already saw, and it does
+not stop someone who changes their clock.
+
 ## Use cloud secrets in envrune.yml
 
 Link the project to a cloud project with `cloud:`, then reference secrets

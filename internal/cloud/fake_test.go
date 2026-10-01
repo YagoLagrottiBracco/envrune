@@ -55,6 +55,7 @@ type fakeProfile struct{ key, backup []byte }
 type fakeOrg struct {
 	id, slug, name string
 	roots          []accountKeyJSON
+	offlineDays    *int
 }
 
 type fakeProject struct{ id, org, slug, name string }
@@ -120,6 +121,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 	route("GET /api/v1/orgs", f.getOrgs)
 	route("POST /api/v1/orgs", f.postOrg)
 	route("GET /api/v1/orgs/{org}", f.getOrg)
+	route("PATCH /api/v1/orgs/{org}", f.patchOrg)
 	route("POST /api/v1/orgs/{org}/members", f.postMember)
 	route("POST /api/v1/orgs/{org}/projects", f.postProject)
 	route("POST /api/v1/orgs/{org}/projects/{project}/environments", f.postEnvironment)
@@ -337,7 +339,7 @@ func (f *fakeServer) getOrg(user string, r *http.Request) (any, int, error) {
 	if o == nil {
 		return fail(404, errNotFound)
 	}
-	snap := Snapshot{ID: o.id, Slug: o.slug, Name: o.name, Roots: o.roots}
+	snap := Snapshot{ID: o.id, Slug: o.slug, Name: o.name, Roots: o.roots, OfflineDays: o.offlineDays}
 	for _, c := range f.certs {
 		if c.OrgID == o.id {
 			snap.Certificates = append(snap.Certificates, c)
@@ -381,6 +383,21 @@ func (f *fakeServer) getOrg(user string, r *http.Request) (any, int, error) {
 		}
 	}
 	return snap, 200, nil
+}
+
+func (f *fakeServer) patchOrg(user string, r *http.Request) (any, int, error) {
+	o := f.orgBySlug(r.PathValue("org"), user)
+	b := decode[struct {
+		OfflineDays *int `json:"offline_days"`
+	}](r)
+	if o == nil || !f.isAdmin(o.id, user) {
+		return fail(403, errForbidden)
+	}
+	if b.OfflineDays != nil && (*b.OfflineDays < 1 || *b.OfflineDays > 365) {
+		return fail(400, fmt.Errorf("the offline limit is 1 to 365 days, or none"))
+	}
+	o.offlineDays = b.OfflineDays
+	return nil, 204, nil
 }
 
 func secretID(env, name string) string { return "sec-" + env + "-" + name }

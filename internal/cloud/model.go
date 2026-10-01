@@ -121,6 +121,7 @@ type Snapshot struct {
 	ID           string           `json:"id"`
 	Slug         string           `json:"slug"`
 	Name         string           `json:"name"`
+	OfflineDays  *int             `json:"offline_days"`
 	Roots        []accountKeyJSON `json:"roots"`
 	Certificates []certJSON       `json:"certificates"`
 	Members      []memberJSON     `json:"members"`

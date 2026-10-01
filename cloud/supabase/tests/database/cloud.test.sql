@@ -4,7 +4,7 @@
 -- member. Signatures are placeholders: the database does not check them;
 -- the API and every client do.
 begin;
-select plan(43);
+select plan(46);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'alice@example.com'),
@@ -166,6 +166,14 @@ select is((select status from public.rotation_items where task_id = :'task'), 'a
 select is((select count(*)::int from public.audit_log where org_id = :'org' and action = 'secret.reencrypt'), 1,
   'the audit log tells a value encrypted again from a new one');
 set local role authenticated;
+
+-- Owners and admins set how long devices may stay offline.
+select pg_temp.become('00000000-0000-0000-0000-00000000000c');
+select throws_ok(format($$ select public.set_offline_days(%L, 30) $$, :'org'), '42501', null, 'a maintainer cannot set the offline limit');
+select pg_temp.become('00000000-0000-0000-0000-00000000000b');
+select public.set_offline_days(:'org', 30);
+select is((select offline_days from public.organizations where id = :'org'), 30, 'an admin sets the offline limit');
+select throws_ok(format($$ select public.set_offline_days(%L, 0) $$, :'org'), '22023', null, 'the offline limit is at least a day');
 
 -- The audit log is append-only and hash-chained.
 reset role;

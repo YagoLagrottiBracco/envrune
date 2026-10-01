@@ -25,6 +25,7 @@ const cloudUsage = `cloud <command>
   org list | show <org>
   org create <org> [--name n] [--roots email[,email]]   Up to two more root holders
   org join <org> --fingerprint f           Trust an organization you were added to
+  org set <org> --offline-days n|off       How long devices work without syncing
   member add <org> <email> --role r --scope s[,s]
   member set <org> <user-id> --role r --scope s[,s]
   member remove <org> <user-id>
@@ -332,8 +333,8 @@ func (w Workspace) cloudDevice(argv []string) int {
 }
 
 func (w Workspace) cloudOrg(argv []string) int {
-	const usage = "cloud org list | create <org> [--name <name>] [--roots <email[,email]>] | show <org> | join <org> --fingerprint <fingerprint>"
-	a, err := parseArgs(argv, []string{"name", "roots", "fingerprint"}, nil, false)
+	const usage = "cloud org list | create <org> [--name <name>] [--roots <email[,email]>] | show <org> | join <org> --fingerprint <fingerprint> | set <org> --offline-days <n|off>"
+	a, err := parseArgs(argv, []string{"name", "roots", "fingerprint", "offline-days"}, nil, false)
 	if err != nil || len(a.positional) == 0 {
 		return w.usageError(usage)
 	}
@@ -401,6 +402,24 @@ func (w Workspace) cloudOrg(argv []string) int {
 		}
 		w.status().Success(fmt.Sprintf("%s is the organization you were told about. You are %s. Run `envrune cloud sync` to fetch its environments.", org.Slug, org.Role))
 		return 0
+	case len(a.positional) == 2 && a.positional[0] == "set":
+		days := 0
+		if raw := a.options["offline-days"]; raw != "off" {
+			if days, err = strconv.Atoi(raw); err != nil || days < 1 {
+				return w.usageError(usage)
+			}
+		}
+		if err := s.SetOfflineDays(ctx, a.positional[1], days); err != nil {
+			return w.cloudFail(err)
+		}
+		if days == 0 {
+			w.status().Success(fmt.Sprintf("Devices may use their copies of %s's environments without syncing for as long as they like.", a.positional[1]))
+			return 0
+		}
+		w.status().Success(fmt.Sprintf("Devices now refuse a copy of %s's environments that was not synced for %d %s. Each learns this the next time it syncs.",
+			a.positional[1], days, plural(days, "day", "days")))
+		w.status().Info("This stops a laptop that no longer syncs, such as a removed member's. It does not take back a value they already saw.")
+		return 0
 	case len(a.positional) == 2 && a.positional[0] == "show":
 		org, err := s.ShowOrg(ctx, a.positional[1])
 		if err != nil {
@@ -419,6 +438,9 @@ func (w Workspace) printOrg(org *cloud.Org) {
 	out := tabwriter.NewWriter(w.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintf(out, "%s\t%s\n", org.Slug, org.Name)
 	fmt.Fprintf(out, "fingerprint\t%s\n", org.Fingerprint)
+	if org.OfflineDays > 0 {
+		fmt.Fprintf(out, "offline\t%d %s without syncing\n", org.OfflineDays, plural(org.OfflineDays, "day", "days"))
+	}
 	for _, r := range org.Roots {
 		fmt.Fprintf(out, "root\t%s\t%s\n", r.UserID, r.Fingerprint)
 	}

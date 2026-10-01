@@ -64,8 +64,8 @@ export async function authenticated(request: Request): Promise<{ client: Supabas
 }
 
 /** The organization id for a slug the caller is a member of. */
-export async function orgBySlug(client: SupabaseClient, slug: string): Promise<{ id: string; slug: string; name: string }> {
-  const { data, error } = await client.from("organizations").select("id, slug, name").eq("slug", slug).maybeSingle();
+export async function orgBySlug(client: SupabaseClient, slug: string): Promise<{ id: string; slug: string; name: string; offline_days: number | null }> {
+  const { data, error } = await client.from("organizations").select("id, slug, name, offline_days").eq("slug", slug).maybeSingle();
   if (error) {
     throw fromPostgres(error);
   }

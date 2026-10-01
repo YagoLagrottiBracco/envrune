@@ -70,6 +70,15 @@ func (c *Client) snapshot(ctx context.Context, slug string) (*Snapshot, error) {
 	return &out, c.call(ctx, http.MethodGet, "/orgs/"+url.PathEscape(slug), nil, nil, &out)
 }
 
+// setOfflineDays sets the organization's offline limit; zero turns it off.
+func (c *Client) setOfflineDays(ctx context.Context, slug string, days int) error {
+	var value any
+	if days > 0 {
+		value = days
+	}
+	return c.call(ctx, http.MethodPatch, "/orgs/"+url.PathEscape(slug), nil, map[string]any{"offline_days": value}, nil)
+}
+
 func (c *Client) lookupAccount(ctx context.Context, email string) (*accountKeyJSON, error) {
 	var out accountKeyJSON
 	return &out, c.call(ctx, http.MethodGet, "/accounts", url.Values{"email": {email}}, nil, &out)

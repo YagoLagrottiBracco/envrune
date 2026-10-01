@@ -90,7 +90,7 @@ func (s *Service) fetch(ctx context.Context, c *Client, st *State, device *cloud
 		}
 		o := fresh.org(v.snap.Slug)
 		o.Certificates = mergeCerts(o.Certificates, payload.Certificates)
-		o.Cache[Path{Project: p.Slug, Env: e.Slug}.cacheKey()] = &CachedEnv{ProjectID: p.ID, EnvironmentID: e.ID, Payload: payload, FetchedAt: time.Now().UTC()}
+		o.Cache[Path{Project: p.Slug, Env: e.Slug}.cacheKey()] = &CachedEnv{ProjectID: p.ID, EnvironmentID: e.ID, Payload: payload, FetchedAt: now().UTC()}
 		return nil
 	})
 	if err != nil {
@@ -224,6 +224,20 @@ func (s *Service) Set(ctx context.Context, path Path, value []byte) (uint64, err
 	return record.Version, nil
 }
 
+// ErrCopyExpired means the organization's offline limit passed since this
+// device last synced an environment.
+var ErrCopyExpired = errors.New("this device's copy is too old to use")
+
+// now is the clock, which tests move.
+var now = time.Now
+
+func plural(n int) string {
+	if n == 1 {
+		return "day"
+	}
+	return "days"
+}
+
 // ReferencePrefix starts the envrune.yml references that name cloud
 // secrets, in a project whose envrune.yml links a cloud project.
 const ReferencePrefix = "cloud."
@@ -288,6 +302,10 @@ func CachedValues(raw []byte, path Path) (map[string][]byte, string, error) {
 	}
 	if cached == nil || cached.Payload == nil {
 		return nil, "", fmt.Errorf("%s is not on this device yet; run `envrune cloud pull %s`", path, path)
+	}
+	if o.OfflineDays > 0 && now().Sub(cached.FetchedAt) > time.Duration(o.OfflineDays)*24*time.Hour {
+		return nil, "", fmt.Errorf("%w: %s was last synced on %s, and %s allows %d %s offline; run `envrune cloud pull %s`",
+			ErrCopyExpired, path, cached.FetchedAt.Format("2006-01-02"), path.Org, o.OfflineDays, plural(o.OfflineDays), path)
 	}
 	payload := cached.Payload
 	ver := &verifier{orgID: o.ID, projectID: cached.ProjectID, envID: cached.EnvironmentID, project: path.Project, env: path.Env,
