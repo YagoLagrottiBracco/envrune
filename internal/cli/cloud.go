@@ -42,6 +42,7 @@ const cloudUsage = `cloud <command>
   rotation accept <org/project/env/name>   Record that a value stays as it is
   token create <org> --scope s[,s] [--name n] [--expires 90d]
   token revoke <id>
+  import-team <org/project/env> [--relink] Move envrune.team.json's values to the cloud
   audit export <org> [--output file]       Download the audit log and verify it
   audit verify <file> [--since older-file] Check an export again, offline`
 
@@ -162,6 +163,8 @@ func (w Workspace) cloud(argv []string) int {
 		return w.cloudToken(rest)
 	case "audit":
 		return w.cloudAudit(rest)
+	case "import-team":
+		return w.cloudImportTeam(rest)
 	}
 	return w.usageError(cloudUsage)
 }

@@ -1,10 +1,13 @@
 package cloud
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -171,57 +174,81 @@ func (s *Service) Sync(ctx context.Context) ([]Path, error) {
 // device. The server accepts only the next version, so a concurrent write
 // fails instead of being lost.
 func (s *Service) Set(ctx context.Context, path Path, value []byte) (uint64, error) {
+	written, err := s.write(ctx, path, map[string][]byte{path.Name: value}, false)
+	return written[path.Name], err
+}
+
+// SetAll writes several secrets of one environment, such as the ones moved
+// from a team file. A value the environment already holds is left as it
+// is, so running it again writes only what changed. It returns the versions
+// written, by name.
+func (s *Service) SetAll(ctx context.Context, env Path, values map[string][]byte) (map[string]uint64, error) {
+	for name := range values {
+		if !secretPattern.MatchString(name) {
+			return nil, fmt.Errorf("%q is not a secret name: use lowercase letters, digits, and dashes", name)
+		}
+	}
+	return s.write(ctx, env, values, true)
+}
+
+func (s *Service) write(ctx context.Context, path Path, values map[string][]byte, skipSame bool) (map[string]uint64, error) {
 	st, c, device, err := s.ready()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	v, err := s.view(ctx, c, path.Org)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	p, e, err := v.environment(path.Project, path.Env)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	me, err := v.member(st.UserID)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	if !me.CanAdminister(p.Slug, e.Slug) {
-		return 0, fmt.Errorf("your role (%s) cannot write to %s/%s", me.Role, p.Slug, e.Slug)
+		return nil, fmt.Errorf("your role (%s) cannot write to %s/%s", me.Role, p.Slug, e.Slug)
 	}
 	o, err := s.fetch(ctx, c, st, device, v, p, e, false)
-	var current uint64
+	current := map[string]uint64{}
 	switch {
 	case err == nil:
 		defer o.wipe()
 		for _, sec := range o.payload.Secrets {
-			if sec.Name == path.Name {
-				current = sec.Version
-			}
+			current[sec.Name] = sec.Version
 		}
 	case errors.Is(err, ErrNoKey) && len(e.Secrets) == 0 && e.Epoch == 1:
 		// An environment nobody wrote to yet: this device creates its key.
 		key, err := s.firstKey(ctx, c, st, device, v, p, e)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		o = &opened{key: key}
 		defer o.wipe()
 	default:
-		return 0, err
+		return nil, err
 	}
-	record, err := device.Seal(o.key, path.Name, current+1, value)
-	if err != nil {
-		return 0, err
-	}
-	if err := c.putSecretVersion(ctx, e.ID, record); err != nil {
-		return 0, err
+	names := slices.Sorted(maps.Keys(values))
+	written := map[string]uint64{}
+	for _, name := range names {
+		if held, ok := o.values[name]; ok && skipSame && bytes.Equal(held, values[name]) {
+			continue
+		}
+		record, err := device.Seal(o.key, name, current[name]+1, values[name])
+		if err != nil {
+			return written, err
+		}
+		if err := c.putSecretVersion(ctx, e.ID, record); err != nil {
+			return written, fmt.Errorf("%s: %w", name, err)
+		}
+		written[name] = record.Version
 	}
 	if refreshed, err := s.fetch(ctx, c, st, device, v, p, e, false); err == nil {
 		refreshed.wipe()
 	}
-	return record.Version, nil
+	return written, nil
 }
 
 // ErrCopyExpired means the organization's offline limit passed since this

@@ -348,7 +348,9 @@ cache, for three reasons: it lives in the repository, while the cache
 belongs to one user; it has no epochs, signatures, or roles; and mixing the
 two would make a repository's contents depend on whether someone has an
 account. `envrune cloud import-team` moves a team file's secrets into a cloud
-project, after which the file can be deleted.
+environment, after which the file can be deleted. The values are decrypted
+with the user's team identity and encrypted again for the cloud on the same
+device; they do not pass through the server in the clear.
 
 ## References in envrune.yml
 

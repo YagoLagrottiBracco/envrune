@@ -394,3 +394,29 @@ func TestReferencePaths(t *testing.T) {
 		}
 	}
 }
+
+func TestSetAllWritesOnlyWhatChanged(t *testing.T) {
+	f := newFakeServer(t)
+	alice, _ := founder(t, f)
+	bob := join(t, f, alice, "bob", cloudcrypto.RoleConsumer, "shop/production")
+
+	written := must[map[string]uint64](t)(alice.SetAll(ctx, production, map[string][]byte{
+		"stripe-key": []byte("sk_live_1"), "db-url": []byte("postgres://one"), "sentry-dsn": []byte("https://dsn")}))
+	if len(written) != 2 || written["db-url"] != 1 || written["sentry-dsn"] != 1 {
+		t.Fatalf("the first run wrote %v", written)
+	}
+	written = must[map[string]uint64](t)(alice.SetAll(ctx, production, map[string][]byte{
+		"stripe-key": []byte("sk_live_1"), "db-url": []byte("postgres://two"), "sentry-dsn": []byte("https://dsn")}))
+	if len(written) != 1 || written["db-url"] != 2 {
+		t.Fatalf("the second run wrote %v", written)
+	}
+	if got := value(t, bob, production, "db-url"); got != "postgres://two" {
+		t.Fatalf("bob read %q", got)
+	}
+	if _, err := alice.SetAll(ctx, production, map[string][]byte{"Not_A_Name": []byte("x")}); err == nil {
+		t.Fatal("an invalid name was written")
+	}
+	if _, err := bob.SetAll(ctx, production, map[string][]byte{"db-url": []byte("x")}); err == nil {
+		t.Fatal("a consumer wrote values")
+	}
+}

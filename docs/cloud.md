@@ -220,6 +220,27 @@ to run an agent's own command line with them. **This prevents accidents, not a d
 consumer**: whoever runs a program with a value can read it on their own
 machine, for example by printing it from the program.
 
+## Moving from a team file
+
+A project that shares secrets through `envrune.team.json`
+([teams-and-ci.md](teams-and-ci.md)) can move them to a cloud environment:
+
+```sh
+envrune cloud import-team acme/shop/production            # shows what goes where, then asks
+envrune cloud import-team acme/shop/production --relink   # and points envrune.yml at the cloud
+```
+
+Each team reference becomes a cloud secret of the same name, with dots
+turned into dashes (`team.stripe.key` becomes `stripe-key`). Running it again
+stores only what changed. `--relink` rewrites the variables of `envrune.yml`
+that read those references, adds `cloud: acme/shop` if the file has no link,
+and keeps your comments.
+
+Then make everyone who needs the values a member of the organization, and
+delete the team file. **Deleting it takes nothing back**: whoever was a
+member of the team file can still read what it held, from the Git history
+too. Replace any value that should not stay known.
+
 ## CI and deploys
 
 Create a machine token for the environments a pipeline needs:
