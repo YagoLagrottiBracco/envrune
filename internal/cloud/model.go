@@ -130,6 +130,7 @@ type Snapshot struct {
 	Projects     []projectJSON    `json:"projects"`
 	Tokens       []tokenJSON      `json:"tokens"`
 	Rotation     []rotationJSON   `json:"rotation"`
+	Sensitive    []sensitiveJSON  `json:"sensitive"`
 }
 
 // rotationJSON is a guided rotation: the secrets someone who left could read.

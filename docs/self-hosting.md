@@ -88,6 +88,23 @@ check machine tokens. It does not decrypt anything: with it, someone can
 read and change ciphertext and metadata, which the CLI's signature checks
 then refuse.
 
+A fourth one is optional. `ENVRUNE_PROXY_IDENTITY` lets the server take
+**sensitive secrets**: values that members use in their requests without
+ever receiving them, because the server puts them in
+([managed-keys.md](managed-keys.md)). It is the one case in which the server
+can read a value, so it is off until you set it:
+
+```sh
+envrune cloud proxy keygen    # prints the identity, and its fingerprint to compare
+```
+
+Set what it prints as `ENVRUNE_PROXY_IDENTITY`, keep a copy somewhere safe,
+and give the fingerprint to your organization's owners: their CLI shows it
+before sealing a value to the server. Whoever has this identity and the
+database can read every sensitive secret; losing it means setting each one
+again. Without it the server refuses sensitive secrets and stores only what
+it cannot read.
+
 The image holds no configuration; the container reads these when it starts,
 so one image serves any deployment. To run it without Compose:
 

@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"filippo.io/age"
+
 	"github.com/YagoLagrottiBracco/envrune/internal/cloudcrypto"
 )
 
@@ -43,6 +45,10 @@ type fakeServer struct {
 	// written is when the current version of each secret was stored,
 	// transition until when its previous value should work, and lastFetch
 	// when each reader last fetched each environment.
+	// proxy is the server's proxy identity, and sensitive what was sealed
+	// to it, by secret id.
+	proxy      *age.X25519Identity
+	sensitive  map[string]*fakeSensitive
 	written    map[string]time.Time
 	transition map[string]time.Time
 	lastFetch  map[string]map[fakeReader]time.Time
@@ -80,6 +86,13 @@ type fakeWrapped struct {
 	w   wrappedJSON
 }
 
+// fakeSensitive is a sensitive secret's current version: what members are
+// shown, and the ciphertext only the server keeps.
+type fakeSensitive struct {
+	json   sensitiveJSON
+	sealed []byte
+}
+
 // fakeReader is a member's device, or a machine token.
 type fakeReader struct{ user, device, token string }
 
@@ -99,14 +112,15 @@ func newFakeServer(t *testing.T) *fakeServer {
 	f := &fakeServer{t: t, emails: map[string]string{}, profiles: map[string]*fakeProfile{}, members: map[string]map[string]memberJSON{},
 		versions: map[string][]secretJSON{}, fetched: map[string]map[string]bool{},
 		audits: map[string][]AuditEntry{}, written: map[string]time.Time{}, transition: map[string]time.Time{},
-		lastFetch: map[string]map[fakeReader]time.Time{}}
+		lastFetch: map[string]map[fakeReader]time.Time{}, sensitive: map[string]*fakeSensitive{}}
+	f.proxy, _ = age.GenerateX25519Identity()
 	mux := http.NewServeMux()
 	route := func(pattern string, h func(user string, r *http.Request) (any, int, error)) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			user := ""
-			if !strings.Contains(pattern, "/health") && !strings.Contains(pattern, "/machine/") {
+			if !strings.Contains(pattern, "/health") && !strings.Contains(pattern, "/machine/") && !strings.HasSuffix(pattern, "/v1/proxy") {
 				claims, err := parseClaims(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 				if err != nil {
 					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "sign in"})
@@ -148,6 +162,8 @@ func newFakeServer(t *testing.T) *fakeServer {
 	route("PATCH /api/v1/rotation/{task}/items/{secret}", f.patchRotationItem)
 	route("GET /api/v1/orgs/{org}/audit", f.getAudit)
 	route("GET /api/v1/versions", f.getVersions)
+	route("GET /api/v1/proxy", f.getProxy)
+	route("POST /api/v1/environments/{env}/sensitive", f.postSensitive)
 	route("GET /api/v1/environments/{env}/status", f.getStatus)
 	route("POST /api/v1/environments/{env}/use", f.postUse)
 	route("PUT /api/v1/environments/{env}/secrets/{name}/transition", f.putTransition)
@@ -399,6 +415,11 @@ func (f *fakeServer) getOrg(user string, r *http.Request) (any, int, error) {
 			snap.Rotation = append(snap.Rotation, r.rotationJSON)
 		}
 	}
+	for _, sec := range f.sensitive {
+		if _, p := f.envInfo(sec.json.EnvironmentID); p != nil && p.org == o.id {
+			snap.Sensitive = append(snap.Sensitive, sec.json)
+		}
+	}
 	return snap, 200, nil
 }
 
@@ -620,6 +641,9 @@ func (f *fakeServer) storeVersion(user, env string, b fakeVersion, newValue bool
 	if b.Epoch != e.epoch {
 		return 409, errConflict
 	}
+	if f.sensitive[secretID(env, b.Name)] != nil {
+		return 409, fmt.Errorf("%s is a sensitive secret; set it with --sensitive", b.Name)
+	}
 	var current uint64
 	for _, s := range f.current(env) {
 		if s.Name == b.Name {
@@ -823,6 +847,49 @@ func (f *fakeServer) getVersions(user string, r *http.Request) (any, int, error)
 		out[id] = v
 	}
 	return out, 200, nil
+}
+
+// ---------------------------------------------------------------- sensitive secrets
+
+func (f *fakeServer) getProxy(string, *http.Request) (any, int, error) {
+	return map[string]string{"recipient": f.proxy.Recipient().String()}, 200, nil
+}
+
+func (f *fakeServer) postSensitive(user string, r *http.Request) (any, int, error) {
+	env := r.PathValue("env")
+	b := decode[struct {
+		Name           string   `json:"name"`
+		Version        uint64   `json:"version"`
+		Hosts          []string `json:"hosts"`
+		ProxyRecipient string   `json:"proxy_recipient"`
+		Sealed         []byte   `json:"sealed"`
+		Device         string   `json:"device"`
+		Signature      []byte   `json:"signature"`
+	}](r)
+	e, p := f.envInfo(env)
+	if e == nil || !f.isAdmin(p.org, user) || !f.canAdminister(env, user) {
+		return fail(403, errForbidden)
+	}
+	if b.ProxyRecipient != f.proxy.Recipient().String() {
+		return fail(409, fmt.Errorf("sealed for another proxy identity"))
+	}
+	for _, sec := range f.current(env) {
+		if sec.Name == b.Name {
+			return fail(409, fmt.Errorf("%s already exists as an ordinary secret", b.Name))
+		}
+	}
+	id := secretID(env, b.Name)
+	var current uint64
+	if held := f.sensitive[id]; held != nil {
+		current = held.json.Version
+	}
+	if b.Version != current+1 {
+		return fail(409, errConflict)
+	}
+	hash := sha256.Sum256(b.Sealed)
+	f.sensitive[id] = &fakeSensitive{sealed: b.Sealed, json: sensitiveJSON{EnvironmentID: env, Name: b.Name, Version: b.Version, Hosts: b.Hosts,
+		ProxyRecipient: b.ProxyRecipient, SealedHash: hash[:], WriterUserID: user, WriterDeviceID: b.Device, Signature: b.Signature}}
+	return map[string]any{"name": b.Name, "version": b.Version}, 201, nil
 }
 
 // ---------------------------------------------------------------- who has the current values

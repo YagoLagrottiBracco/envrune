@@ -289,6 +289,36 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("reported %d uses", n)
 	}
 
+	// A sensitive secret: sealed to the server's proxy identity after its
+	// fingerprint is confirmed, listed for members with where it may go, and
+	// in nobody's pull.
+	proxy := must[*ProxyIdentity](t)(alice.Proxy(ctx))
+	hidden := Path{Org: org, Project: "shop", Env: "production", Name: "payments-key"}
+	if v := must[uint64](t)(alice.SetSensitive(ctx, hidden, []byte("the-real-value"), []string{"api.example.com"}, proxy.Fingerprint)); v != 1 {
+		t.Fatalf("the sensitive secret is at version %d", v)
+	}
+	if _, err := alice.Set(ctx, hidden, []byte("x")); err == nil {
+		t.Fatal("a sensitive secret was replaced by an ordinary one")
+	}
+	if _, err := alice.SetSensitive(ctx, prod, []byte("x"), []string{"api.example.com"}, proxy.Fingerprint); err == nil {
+		t.Fatal("a secret members have read became sensitive")
+	}
+	listed := false
+	for _, p := range must[*Org](t)(bob.ShowOrg(ctx, org)).Projects {
+		for _, e := range p.Environments {
+			for _, sec := range e.Sensitive {
+				listed = listed || (sec.Name == "payments-key" && sec.Verified && len(sec.Hosts) == 1)
+			}
+		}
+	}
+	if !listed {
+		t.Fatal("bob does not see the sensitive secret, verified")
+	}
+	must[[]SecretInfo](t)(bob.Pull(ctx, env, false))
+	if values, _, err := bob.Values(env); err != nil || values["payments-key"] != nil {
+		t.Fatalf("bob pulled the sensitive value: %v", err)
+	}
+
 	// The offline limit is the admins' to set, and members' devices learn it.
 	if err := bob.SetOfflineDays(ctx, org, 30); err == nil {
 		t.Fatal("a consumer set the offline limit")
@@ -307,7 +337,7 @@ func TestEndToEnd(t *testing.T) {
 		seen[entry.Action] = true
 	}
 	for _, action := range []string{"org.create", "member.consumer", "member.removed", "device.approve", "key.share", "secret.write",
-		"secret.reencrypt", "environment.fetch", "environment.rotate", "token.create", "token.revoke", "rotation.accepted", "org.offline_days", "secret.transition", "secret.use"} {
+		"secret.reencrypt", "environment.fetch", "environment.rotate", "token.create", "token.revoke", "rotation.accepted", "org.offline_days", "secret.transition", "secret.use", "secret.sensitive"} {
 		if !seen[action] {
 			t.Errorf("the audit log has no %s", action)
 		}

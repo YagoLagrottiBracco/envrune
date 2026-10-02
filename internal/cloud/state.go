@@ -32,6 +32,11 @@ type State struct {
 	// server cannot serve older ones unnoticed.
 	Versions map[string][2]uint64 `json:"versions,omitempty"`
 
+	// ProxyRecipient is the server's proxy identity as this device was shown
+	// it and its user confirmed, the first time they sealed a sensitive
+	// secret; the server cannot present another one afterwards.
+	ProxyRecipient string `json:"proxy_recipient,omitempty"`
+
 	// Use holds the notes of use this device has not reported yet.
 	Use []UseRecord `json:"use,omitempty"`
 }

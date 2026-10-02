@@ -34,6 +34,7 @@ const cloudUsage = `cloud <command>
   set <org/project/env/name>               Store a value (asked twice, never echoed)
   set <org/project/env/name> --generate [--length n]
   set ... --transition 24h                 Say how long the previous value still works
+  set ... --sensitive --allow-host h[,h]   A value members use but never receive
   status <org/project/env>                 Who already has the current values
   copy <org/project/env/name> [--clear-after 30s]
   pull <org/project/env> [--allow-older]   Refresh this device's copy of an environment
@@ -45,6 +46,7 @@ const cloudUsage = `cloud <command>
   token create <org> --scope s[,s] [--name n] [--expires 90d]
   token revoke <id>
   import-team <org/project/env> [--relink] Move envrune.team.json's values to the cloud
+  proxy keygen                             A proxy identity, for whoever runs a server
   audit export <org> [--output file]       Download the audit log and verify it
   audit verify <file> [--since older-file] Check an export again, offline`
 
@@ -169,6 +171,8 @@ func (w Workspace) cloud(argv []string) int {
 		return w.cloudAudit(rest)
 	case "import-team":
 		return w.cloudImportTeam(rest)
+	case "proxy":
+		return w.cloudProxy(rest)
 	}
 	return w.usageError(cloudUsage)
 }
@@ -468,7 +472,24 @@ func (w Workspace) printOrg(org *cloud.Org) {
 			if e.NeedsRotation {
 				note = " (needs rotation)"
 			}
-			fmt.Fprintf(out, "%s/%s\t%d%s\t%d\n", p.Slug, e.Slug, e.Epoch, note, len(e.Secrets))
+			fmt.Fprintf(out, "%s/%s\t%d%s\t%d\n", p.Slug, e.Slug, e.Epoch, note, len(e.Secrets)+len(e.Sensitive))
+		}
+	}
+	listed := false
+	for _, p := range org.Projects {
+		for _, e := range p.Environments {
+			for _, sec := range e.Sensitive {
+				if !listed {
+					fmt.Fprintln(out)
+					fmt.Fprintln(out, "SENSITIVE SECRET\tVERSION\tSENT ONLY TO")
+					listed = true
+				}
+				where := strings.Join(sec.Hosts, ", ")
+				if !sec.Verified {
+					where += "  UNVERIFIED: not signed by an owner or admin for the identity this device trusts"
+				}
+				fmt.Fprintf(out, "%s/%s/%s\t%d\t%s\n", p.Slug, e.Slug, sec.Name, sec.Version, where)
+			}
 		}
 	}
 	out.Flush()
@@ -605,10 +626,13 @@ func (w Workspace) cloudEnv(argv []string) int {
 }
 
 func (w Workspace) cloudSet(argv []string) int {
-	const usage = "cloud set <org/project/env/name> [--generate [--length <n>]] [--transition <24h|7d>]"
-	a, err := parseArgs(argv, []string{"length", "transition"}, []string{"generate"}, false)
+	const usage = "cloud set <org/project/env/name> [--generate [--length <n>]] [--transition <24h|7d>] [--sensitive --allow-host <host[,host]>]"
+	a, err := parseArgs(argv, []string{"length", "transition", "allow-host"}, []string{"generate", "sensitive"}, false)
 	_, hasLength := a.options["length"]
-	if err != nil || len(a.positional) != 1 || (hasLength && !a.flags["generate"]) {
+	hosts := splitScope(a.options["allow-host"])
+	_, hasTransition := a.options["transition"]
+	if err != nil || len(a.positional) != 1 || (hasLength && !a.flags["generate"]) ||
+		a.flags["sensitive"] != (len(hosts) > 0) || (a.flags["sensitive"] && hasTransition) {
 		return w.usageError(usage)
 	}
 	var transition time.Duration
@@ -620,6 +644,26 @@ func (w Workspace) cloudSet(argv []string) int {
 	path, err := cloud.ParsePath(a.positional[0], true)
 	if err != nil {
 		return w.cloudFail(err)
+	}
+	ctx, cancel := cloudContext()
+	defer cancel()
+	// A sensitive value is sealed to the server, which is the one exception
+	// to the server never reading a value: the person agrees to it, having
+	// seen which key it is sealed to, before typing the value.
+	var proxy *cloud.ProxyIdentity
+	if a.flags["sensitive"] {
+		if proxy, err = w.cloudService().Proxy(ctx); err != nil {
+			return w.cloudFail(err)
+		}
+		w.status().Warn(fmt.Sprintf("A sensitive secret is sealed to the server, which sends it only to %s. Members use it without receiving it; the server, and whoever runs it, can read it.", strings.Join(hosts, ", ")))
+		if !proxy.Pinned {
+			w.status().Info("This server's proxy identity has this fingerprint. Whoever runs the server can confirm it:")
+			fmt.Fprintf(w.Stderr, "\n    %s\n\n", proxy.Fingerprint)
+			if !w.confirmChoice("Seal sensitive values to this identity from now on?") {
+				w.status().Error("Nothing was stored.")
+				return 1
+			}
+		}
 	}
 	var value []byte
 	if a.flags["generate"] {
@@ -636,8 +680,15 @@ func (w Workspace) cloudSet(argv []string) int {
 		return w.fail(err, "Secure interactive input is required.")
 	}
 	defer wipe(value)
-	ctx, cancel := cloudContext()
-	defer cancel()
+	if a.flags["sensitive"] {
+		version, err := w.cloudService().SetSensitive(ctx, path, value, hosts, proxy.Fingerprint)
+		if err != nil {
+			return w.cloudFail(err)
+		}
+		w.status().Success(fmt.Sprintf("Stored %s, version %d, as a sensitive secret for %s.", path, version, strings.Join(hosts, ", ")))
+		w.status().Info("Nobody can read it back, you included. To replace it, set it again.")
+		return 0
+	}
 	version, err := w.cloudService().Set(ctx, path, value)
 	if err != nil {
 		return w.cloudFail(err)

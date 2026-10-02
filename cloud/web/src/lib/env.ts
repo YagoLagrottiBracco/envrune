@@ -23,3 +23,10 @@ export const missing = () => variables.filter((name) => !process.env[name]);
 export const supabaseUrl = () => required("NEXT_PUBLIC_SUPABASE_URL");
 export const publishableKey = () => required("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
 export const secretKey = () => required("SUPABASE_SECRET_KEY");
+
+/**
+ * The server's proxy identity (an age identity, AGE-SECRET-KEY-1...), which
+ * sensitive secrets are sealed to. Optional: a server without one stores
+ * only what it cannot read, and refuses sensitive secrets.
+ */
+export const proxyIdentity = () => process.env["ENVRUNE_PROXY_IDENTITY"] || null;

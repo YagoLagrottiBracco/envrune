@@ -4,7 +4,7 @@
 -- member. Signatures are placeholders: the database does not check them;
 -- the API and every client do.
 begin;
-select plan(53);
+select plan(60);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'alice@example.com'),
@@ -194,6 +194,23 @@ reset role;
 select is((select detail->>'reported_by_device' from public.audit_log where org_id = :'org' and action = 'secret.use'), 'true',
   'reported use is marked as the device''s account');
 set local role authenticated;
+
+-- Sensitive secrets: owners and admins mark them, members see where they
+-- may go, and only the server is given the ciphertext.
+select pg_temp.become('00000000-0000-0000-0000-00000000000c');
+select throws_ok(format($$ select public.put_sensitive_version(%L, 'payments-key', 1, '{api.example.com}', 'age1proxy', 'sealed', 'carol-laptop', pg_temp.sig()) $$, :'env'),
+  '42501', null, 'a maintainer cannot mark a secret sensitive');
+select pg_temp.become('00000000-0000-0000-0000-00000000000b');
+select public.put_sensitive_version(:'env', 'payments-key', 1, '{api.example.com}', 'age1proxy', 'sealed', 'bob-laptop', pg_temp.sig());
+select throws_ok(format($$ select public.put_sensitive_version(%L, 'stripe-key', 1, '{api.example.com}', 'age1proxy', 'sealed', 'bob-laptop', pg_temp.sig()) $$, :'env'),
+  '23505', null, 'a secret members have read cannot become sensitive');
+select throws_ok(format($$ select public.put_secret_version(%L, 'payments-key', 1, 2, decode(repeat('00', 24), 'hex'), 'z', 'bob-laptop', pg_temp.sig()) $$, :'env'),
+  '23505', null, 'a sensitive secret cannot be replaced by an ordinary one');
+select pg_temp.become('00000000-0000-0000-0000-00000000000c');
+select is(public.sensitive_in_org(:'org')->0->'hosts'->>0, 'api.example.com', 'members see where a sensitive secret may be sent');
+select ok((public.sensitive_in_org(:'org')->0->>'sealed') is null, 'members are not sent the ciphertext');
+select throws_ok($$ select sealed from public.sensitive_versions $$, '42501', null, 'members cannot read the stored ciphertext');
+select throws_ok(format($$ select public.sensitive_for_proxy(%L, 'payments-key') $$, :'env'), '42501', null, 'only the server asks for a ciphertext to forward');
 
 -- The audit log is append-only and hash-chained.
 reset role;

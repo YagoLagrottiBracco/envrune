@@ -6,7 +6,8 @@ import { certJson, deviceJson, tokenJson } from "@/lib/shapes";
 // organization: the pinned roots, every membership certificate, the
 // members' account keys and certified devices, projects, environments,
 // secret names and versions, machine tokens (admins only), and open
-// rotation tasks. No values and no keys that decrypt them.
+// rotation tasks, and the sensitive secrets' names and allowed hosts. No
+// values and no keys that decrypt them.
 //
 // PATCH { offline_days }: how many days a device may use its copy of an
 // environment without syncing; null turns the limit off.
@@ -40,13 +41,14 @@ export const PATCH = handle(async (request, ctx: RouteContext<"/api/v1/orgs/[org
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function snapshot(client: SupabaseClient, org: { id: string; slug: string; name: string; offline_days: number | null }): Promise<any> {
-  const [roots, certs, members, projects, tokens, tasks] = await Promise.all([
+  const [roots, certs, members, projects, tokens, tasks, sensitive] = await Promise.all([
     rows(client.from("org_roots").select("user_id, account_key").eq("org_id", org.id)),
     rows(client.from("membership_certs").select("*").eq("org_id", org.id).order("id")),
     rows(client.from("org_members").select("user_id, role, scope").eq("org_id", org.id)),
     rows(client.from("projects").select("id, slug, name, environments(id, slug, epoch, needs_rotation, secrets(id, name, current_version))").eq("org_id", org.id)),
     rows(client.from("machine_tokens").select("*").eq("org_id", org.id)),
     rows(client.from("rotation_tasks").select("id, reason, subject_user_id, subject_token, created_at, rotation_items(secret_id, status)").eq("org_id", org.id)),
+    rpc<unknown[]>(client, "sensitive_in_org", { p_org: org.id }),
   ]);
   const memberIds = members.map((m) => m.user_id);
   const [profiles, devices] = await Promise.all([
@@ -66,5 +68,8 @@ async function snapshot(client: SupabaseClient, org: { id: string; slug: string;
     projects,
     tokens: tokens.map(tokenJson),
     rotation: tasks,
+    // Sensitive secrets: where each may be sent and who marked it. Their
+    // ciphertext is never sent to a member.
+    sensitive,
   };
 }

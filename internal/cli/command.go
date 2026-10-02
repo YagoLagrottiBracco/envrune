@@ -155,8 +155,8 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 		// Reads only envrune.yml, so it needs no unlock.
 		return Workspace{Stdout: stdout, Stderr: stderr}.Execute(args)
 	case "cloud":
-		// Checks files only, so it needs no unlock.
-		if len(args) > 2 && args[1] == "audit" && args[2] == "verify" {
+		// Checks files, or makes a key for a server: neither needs the vault.
+		if len(args) > 2 && (args[1] == "audit" && args[2] == "verify" || args[1] == "proxy") {
 			return Workspace{Stdout: stdout, Stderr: stderr}.Execute(args)
 		}
 	case "__project-root":

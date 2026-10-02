@@ -25,6 +25,8 @@ type view struct {
 	certs []*cloudcrypto.MembershipCertificate
 	// FirstSeen is set when this call pinned the roots.
 	firstSeen bool
+	// pinnedProxy is the proxy identity this device trusted, or "".
+	pinnedProxy string
 }
 
 // view fetches an organization and pins or checks its roots. Certificates
@@ -57,6 +59,7 @@ func (s *Service) view(ctx context.Context, c *Client, slug string) (*view, erro
 		}
 		v.trust = cloudcrypto.Trust{OrgID: o.ID, Roots: pinned(o.Roots)}
 		v.certs = certificates(o.Certificates)
+		v.pinnedProxy = st.ProxyRecipient
 		return nil
 	})
 	if err != nil {
@@ -182,6 +185,7 @@ type Environment struct {
 	Epoch         uint64
 	NeedsRotation bool
 	Secrets       []SecretInfo
+	Sensitive     []SensitiveInfo
 }
 
 type SecretInfo struct {
@@ -362,6 +366,7 @@ func (v *view) describe(self string) *Org {
 			for _, sec := range e.Secrets {
 				env.Secrets = append(env.Secrets, SecretInfo{Name: sec.Name, Version: sec.CurrentVersion})
 			}
+			env.Sensitive = v.sensitive(&p, &e, v.pinnedProxy)
 			project.Environments = append(project.Environments, env)
 		}
 		o.Projects = append(o.Projects, project)

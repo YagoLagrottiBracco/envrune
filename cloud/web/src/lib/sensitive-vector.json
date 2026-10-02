@@ -1,0 +1,17 @@
+{
+  "identity": "AGE-SECRET-KEY-1W8TUMJ0Z7GXL7YCAZCWDK3DXTAKT3AYKHE4HWWGCNG6XPKDDLJVSLHWMH7",
+  "recipient": "age16m5qr3c56qp8ppkn73c0uvs67r9s7gzpg79zkvzhr7cpda5z9slq5k39q8",
+  "row": {
+    "org_id": "org-1",
+    "project_id": "project-1",
+    "environment_id": "env-1",
+    "name": "payments-key",
+    "version": 2,
+    "sealed": "YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBidEt2UDRnRnpobW9kQzQ0N2huZjJLMXdSOUxIaXBZOXlRMHdjbUhjRkNNCmZBaWl1M2FNTWpmK3R2YnlrTWJEMVZXVkt5aExsSFJOVkYyZStsTE9FMHcKLS0tIE5sQ0lmK0phMGlaV0ttbVhoNTJGcmdSRGQyczIvbi9IbkVoZjNOR2RYcGsKpabbXdCyjZH0Fos6sEAV5xKgvnTN82WHLHeLDDH6hqMNTz3qHTRK35Ni40yQCKXDC6XLLIVQyH9R7yFDhvRGF4zu8wkvVchxMLY70w6ANggn8Yy4lyNpnEbbEJrBzEHolSJqnXy4b1ygyDSvkNun0qiZma704y2xu1xTk3XeJO+7KcViBGFBxcCzc/1W2QGOz/WIgrmdjx8gWZitHsYlad6SsZ+5uIe80vQHqYCb9+abbNGSZ44I+MKEhVmXBh8VB4kLck3T0IMrT6hGU+6C9A=="
+  },
+  "hosts": [
+    "api.example.com",
+    "b.example.org"
+  ],
+  "value": "the-real-value é ✓"
+}
