@@ -57,6 +57,17 @@ func (s *Service) view(ctx context.Context, c *Client, slug string) (*view, erro
 		if snap.OfflineDays != nil {
 			o.OfflineDays = *snap.OfflineDays
 		}
+		o.Sensitive = map[string][]string{}
+		for _, p := range snap.Projects {
+			for _, e := range p.Environments {
+				for _, sec := range snap.Sensitive {
+					if sec.EnvironmentID == e.ID {
+						key := Path{Project: p.Slug, Env: e.Slug}.cacheKey()
+						o.Sensitive[key] = append(o.Sensitive[key], sec.Name)
+					}
+				}
+			}
+		}
 		v.trust = cloudcrypto.Trust{OrgID: o.ID, Roots: pinned(o.Roots)}
 		v.certs = certificates(o.Certificates)
 		v.pinnedProxy = st.ProxyRecipient

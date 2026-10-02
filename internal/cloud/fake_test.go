@@ -6,8 +6,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -42,13 +44,20 @@ type fakeServer struct {
 	tokens   []*fakeToken
 	fetches  int
 	checks   int
+	// expired holds Authorization values the server answers 401 to once,
+	// as it does when a session ran out.
+	expired map[string]bool
 	// written is when the current version of each secret was stored,
 	// transition until when its previous value should work, and lastFetch
 	// when each reader last fetched each environment.
 	// proxy is the server's proxy identity, and sensitive what was sealed
 	// to it, by secret id.
-	proxy      *age.X25519Identity
-	sensitive  map[string]*fakeSensitive
+	proxy     *age.X25519Identity
+	sensitive map[string]*fakeSensitive
+	// upstream plays the services that forwarded requests go to, and
+	// forwarded counts them by "user device secret host".
+	upstream   http.Handler
+	forwarded  map[string]int
 	written    map[string]time.Time
 	transition map[string]time.Time
 	lastFetch  map[string]map[fakeReader]time.Time
@@ -167,6 +176,8 @@ func newFakeServer(t *testing.T) *fakeServer {
 	route("GET /api/v1/environments/{env}/status", f.getStatus)
 	route("POST /api/v1/environments/{env}/use", f.postUse)
 	route("PUT /api/v1/environments/{env}/secrets/{name}/transition", f.putTransition)
+	mux.HandleFunc("/api/v1/forward", f.forward)
+	f.forwarded = map[string]int{}
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
 	return f
@@ -890,6 +901,101 @@ func (f *fakeServer) postSensitive(user string, r *http.Request) (any, int, erro
 	f.sensitive[id] = &fakeSensitive{sealed: b.Sealed, json: sensitiveJSON{EnvironmentID: env, Name: b.Name, Version: b.Version, Hosts: b.Hosts,
 		ProxyRecipient: b.ProxyRecipient, SealedHash: hash[:], WriterUserID: user, WriterDeviceID: b.Device, Signature: b.Signature}}
 	return map[string]any{"name": b.Name, "version": b.Version}, 201, nil
+}
+
+// forward plays POST /forward: it answers as the member may, opens each
+// named secret with the proxy identity, refuses a host the sealed content
+// does not allow, and puts the value in place of the placeholder in the
+// address, the headers, and the body before calling the upstream.
+func (f *fakeServer) forward(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	refuse := func(status int, message string) {
+		w.Header().Set("X-EnvRune-Forward", "refused")
+		writeJSON(w, status, map[string]string{"error": message})
+	}
+	claims, err := parseClaims(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	if err != nil || f.expired[r.Header.Get("Authorization")] {
+		refuse(401, "sign in")
+		return
+	}
+	user, device := claims.Subject, r.Header.Get("X-EnvRune-Device")
+	var headers [][2]string
+	var named []struct {
+		EnvironmentID string `json:"environment_id"`
+		Name          string `json:"name"`
+		Placeholder   string `json:"placeholder"`
+	}
+	decode := func(header string, into any) bool {
+		raw, err := base64.StdEncoding.DecodeString(r.Header.Get(header))
+		return err == nil && json.Unmarshal(raw, into) == nil
+	}
+	if !decode("X-EnvRune-Headers", &headers) || !decode("X-EnvRune-Secrets", &named) || len(named) == 0 {
+		refuse(400, "malformed")
+		return
+	}
+	target, err := url.Parse(r.Header.Get("X-EnvRune-Target"))
+	if err != nil || target.Scheme != "https" || target.Port() != "" {
+		refuse(400, "sensitive secrets are sent only over https, on the standard port")
+		return
+	}
+	body, _ := io.ReadAll(r.Body)
+	swaps := [][2]string{} // placeholder, value
+	for _, n := range named {
+		e, _ := f.envInfo(n.EnvironmentID)
+		d := f.device(user, device)
+		if e == nil || !f.canUse(n.EnvironmentID, user) || d == nil || d.Signature == nil || d.RevokedAt != nil {
+			refuse(403, "you cannot use this environment")
+			return
+		}
+		stored := f.sensitive[secretID(n.EnvironmentID, n.Name)]
+		if stored == nil {
+			refuse(404, "no sensitive secret "+n.Name)
+			return
+		}
+		_, p := f.envInfo(n.EnvironmentID)
+		record := stored.json.record(p.org, p.id)
+		record.Sealed = stored.sealed
+		content, err := cloudcrypto.OpenSensitive(record, f.proxy)
+		if err != nil || !slices.Contains(content.Hosts, strings.ToLower(target.Hostname())) {
+			refuse(403, "a sensitive secret in this request may not be sent to "+target.Hostname())
+			return
+		}
+		swaps = append(swaps, [2]string{n.Placeholder, string(content.Value)})
+		f.forwarded[strings.Join([]string{user, device, n.Name, target.Hostname()}, " ")]++
+	}
+	put := func(text string) string {
+		for _, sw := range swaps {
+			text = strings.ReplaceAll(text, sw[0], sw[1])
+		}
+		return text
+	}
+	out := httptest.NewRequest(r.Method, put(target.String()), strings.NewReader(put(string(body))))
+	for _, h := range headers {
+		value := h[1]
+		if basic, ok := strings.CutPrefix(value, "Basic "); ok && strings.EqualFold(h[0], "Authorization") {
+			if raw, err := base64.StdEncoding.DecodeString(basic); err == nil {
+				value = "Basic " + base64.StdEncoding.EncodeToString([]byte(put(string(raw))))
+			}
+		}
+		out.Header.Add(h[0], put(value))
+	}
+	if f.upstream == nil {
+		refuse(502, target.Hostname()+" could not be reached from the server")
+		return
+	}
+	recorder := httptest.NewRecorder()
+	f.upstream.ServeHTTP(recorder, out)
+	answer := recorder.Body.String()
+	for _, sw := range swaps {
+		answer = strings.ReplaceAll(answer, sw[1], sw[0])
+	}
+	for name, values := range recorder.Header() {
+		w.Header()[name] = values
+	}
+	w.Header().Set("X-EnvRune-Forward", "upstream")
+	w.WriteHeader(recorder.Code)
+	_, _ = io.WriteString(w, answer)
 }
 
 // ---------------------------------------------------------------- who has the current values

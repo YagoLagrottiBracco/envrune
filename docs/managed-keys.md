@@ -234,15 +234,17 @@ exception hard to create by accident:
   refused, so the detour cannot be used to send the value elsewhere. The
   server does not follow redirects, which could point elsewhere with the
   value attached.
-- **Only members who may use the environment**, through a grant bound to the
-  user, the device, and the secret, valid for an hour and extended while
-  the command runs. It ends when it expires, when the device is revoked,
-  and when the member is removed or loses the scope.
+- **Only members who may use the environment**, from an approved device.
+  The program holds no credential for the server: `envrune` forwards each
+  request with the member's own session, and the server checks the
+  membership, the scope, and the device on every request. Removing a member
+  or revoking a device stops their use at the next request.
 - **Sizes and durations** are limited. A server on a platform that limits
   request size or time inherits that limit; a self-hosted one sets its own.
-- **Logs** hold the member, the host, the method, the path without its
-  query, the status, and the time, never a body or the value. The owner
-  can see what was done with the secret, by whom.
+- **Use is recorded** per member, device, secret, and host, counted by the
+  hour, with the first request of each hour in the audit log
+  (`secret.forward`). No request body and no value is stored. The owner can
+  see who used a secret, from where, toward which host, and how much.
 
 ### What it does not do
 

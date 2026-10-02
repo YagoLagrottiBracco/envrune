@@ -4,7 +4,7 @@
 -- member. Signatures are placeholders: the database does not check them;
 -- the API and every client do.
 begin;
-select plan(60);
+select plan(64);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'alice@example.com'),
@@ -211,6 +211,21 @@ select is(public.sensitive_in_org(:'org')->0->'hosts'->>0, 'api.example.com', 'm
 select ok((public.sensitive_in_org(:'org')->0->>'sealed') is null, 'members are not sent the ciphertext');
 select throws_ok($$ select sealed from public.sensitive_versions $$, '42501', null, 'members cannot read the stored ciphertext');
 select throws_ok(format($$ select public.sensitive_for_proxy(%L, 'payments-key') $$, :'env'), '42501', null, 'only the server asks for a ciphertext to forward');
+
+-- Using a sensitive secret is checked as the member, and counted by hour.
+select public.sensitive_forward(:'env', 'payments-key', 'carol-laptop', 'api.example.com', false);
+select public.sensitive_forward(:'env', 'payments-key', 'carol-laptop', 'api.example.com', true);
+select public.sensitive_forward(:'env', 'payments-key', 'carol-laptop', 'api.example.com', true);
+select throws_ok(format($$ select public.sensitive_forward(%L, 'payments-key', 'not-her-device', 'api.example.com', true) $$, :'env'),
+  '42501', null, 'a sensitive secret is used from an approved device');
+select pg_temp.become('00000000-0000-0000-0000-00000000000d');
+select throws_ok(format($$ select public.sensitive_forward(%L, 'payments-key', 'dave-laptop', 'api.example.com', false) $$, :'env'),
+  '42501', null, 'a removed member cannot use a sensitive secret');
+reset role;
+select is((select requests::int from public.sensitive_use), 2, 'requests are counted, not the checks before them');
+select is((select count(*)::int from public.audit_log where org_id = :'org' and action = 'secret.forward'), 1,
+  'the audit log gets one entry per member, device, host, and hour');
+set local role authenticated;
 
 -- The audit log is append-only and hash-chained.
 reset role;

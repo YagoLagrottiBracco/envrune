@@ -56,6 +56,10 @@ type OrgState struct {
 	// AuditHead is the newest audit entry this device verified, so a later
 	// export must still hold it.
 	AuditHead *AuditHead `json:"audit_head,omitempty"`
+	// Sensitive names the sensitive secrets of each environment
+	// ("project/env"), as last heard from the server, so a command knows
+	// offline that a reference stands for one.
+	Sensitive map[string][]string `json:"sensitive,omitempty"`
 	// OfflineDays is how long the organization lets a copy in Cache be used
 	// without syncing, as last heard from the server; zero means forever.
 	OfflineDays int `json:"offline_days,omitempty"`

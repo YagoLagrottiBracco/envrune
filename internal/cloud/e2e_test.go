@@ -318,6 +318,24 @@ func TestEndToEnd(t *testing.T) {
 	if values, _, err := bob.Values(env); err != nil || values["payments-key"] != nil {
 		t.Fatalf("bob pulled the sensitive value: %v", err)
 	}
+	// Bob's requests go through the server, which opens the secret, checks
+	// the host against what was sealed, and counts the use. The allowed host
+	// does not exist, so the server reports that it could not reach it.
+	fw := must[*Forwarder](t)(bob.Forwarder(ctx, []Path{hidden}))
+	var refusal *ForwardError
+	call := func(target string) *http.Request {
+		req, _ := http.NewRequest(http.MethodPost, target, bytes.NewReader([]byte(`{"k":"`+fw.Sealed()[0].Placeholder+`"}`)))
+		req.Header.Set("Authorization", "Bearer "+fw.Sealed()[0].Placeholder)
+		req.Header.Set("Content-Type", "application/json")
+		return req
+	}
+	if _, err := fw.Do(call("https://api.example.com/v1/charges")); !errors.As(err, &refusal) || refusal.Status != http.StatusBadGateway {
+		t.Fatalf("forwarding to the allowed host: %v", err)
+	}
+	fw.sealed[0].Hosts = append(fw.sealed[0].Hosts, "example.org")
+	if _, err := fw.Do(call("https://example.org/collect")); !errors.As(err, &refusal) || refusal.Status != http.StatusForbidden {
+		t.Fatalf("the server forwarded to a host the secret does not allow: %v", err)
+	}
 
 	// The offline limit is the admins' to set, and members' devices learn it.
 	if err := bob.SetOfflineDays(ctx, org, 30); err == nil {
@@ -337,7 +355,7 @@ func TestEndToEnd(t *testing.T) {
 		seen[entry.Action] = true
 	}
 	for _, action := range []string{"org.create", "member.consumer", "member.removed", "device.approve", "key.share", "secret.write",
-		"secret.reencrypt", "environment.fetch", "environment.rotate", "token.create", "token.revoke", "rotation.accepted", "org.offline_days", "secret.transition", "secret.use", "secret.sensitive"} {
+		"secret.reencrypt", "environment.fetch", "environment.rotate", "token.create", "token.revoke", "rotation.accepted", "org.offline_days", "secret.transition", "secret.use", "secret.sensitive", "secret.forward"} {
 		if !seen[action] {
 			t.Errorf("the audit log has no %s", action)
 		}
