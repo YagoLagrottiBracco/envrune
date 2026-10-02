@@ -10,6 +10,9 @@ export interface Substitution {
   value: Uint8Array;
   /** The hosts the owner allowed, from inside the sealed content. */
   hosts: string[];
+  /** A client certificate and its key, in PEM, to present to those hosts. */
+  certificate?: string;
+  key?: string;
 }
 
 /** A request to forward, as the member's envrune sent it. */

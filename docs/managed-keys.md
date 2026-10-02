@@ -172,10 +172,19 @@ text with another wherever it appears in the request:
 In the response it does the reverse, so a service that echoes the value
 back shows the program the placeholder again.
 
-Services that identify callers by a **client certificate** instead of a
-value in the request are not covered yet. The same mechanism extends to
-them: the certificate and its key would be sealed like a value, and the
-server would present them to the allowed hosts.
+A sensitive secret may also be a **client certificate** with its private
+key, for services that identify their callers that way:
+
+```sh
+envrune cloud set acme/shop/production/bank-certificate --sensitive \
+  --allow-host api.example.com --client-cert client.pem --client-key client.key
+```
+
+It is sealed like a value and the server presents it to the allowed hosts.
+The program's placeholder for it carries nothing; a variable that
+references the secret is what sends the program's requests to those hosts
+through the server. A request can present one certificate, and can carry
+other sensitive values next to it.
 
 That is the whole mechanism, and it is the same for every secret. It covers
 any service where the secret travels in an HTTPS request, which is how API
@@ -284,7 +293,7 @@ proxy identity.
 1. **Rotation that distributes itself**, and the record of use. These need
    no exception to zero-knowledge.
 2. **Sensitive secrets**: marking and storage, the server's forwarding, and
-   the loopback proxy in `run`. Client certificates and networks that
+   the loopback proxy in `run`, then client certificates. Networks that
    require their own proxy come after.
 
 Decided along the way:

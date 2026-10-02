@@ -18,6 +18,9 @@ export interface SensitiveRow {
 export interface SensitiveContent {
   hosts: string[];
   value: Uint8Array;
+  /** A client certificate and its key, in PEM, when the secret is one. */
+  certificate?: string;
+  key?: string;
 }
 
 /** The public half of a proxy identity, which values are sealed to. */
@@ -41,7 +44,9 @@ export async function openSensitive(identity: string, row: SensitiveRow): Promis
     name: string;
     version: number;
     hosts: string[];
-    value: string;
+    value: string | null;
+    certificate?: string;
+    key?: string;
   };
   if (
     content.org !== row.org_id ||
@@ -54,5 +59,11 @@ export async function openSensitive(identity: string, row: SensitiveRow): Promis
   ) {
     throw new Error("the sealed content belongs to another secret or version");
   }
-  return { hosts: content.hosts, value: Buffer.from(content.value, "base64") };
+  const pem = (field?: string) => (field ? Buffer.from(field, "base64").toString("utf8") : undefined);
+  return {
+    hosts: content.hosts,
+    value: Buffer.from(content.value ?? "", "base64"),
+    certificate: pem(content.certificate),
+    key: pem(content.key),
+  };
 }

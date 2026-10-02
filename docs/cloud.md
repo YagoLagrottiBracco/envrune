@@ -218,6 +218,9 @@ What to know before using it:
   placeholder, which the service refuses.
 - **Only for values that travel in an HTTPS request.** A database password,
   or a key the program signs with itself, stays an ordinary secret.
+- **A client certificate can be one too**, for services that identify
+  callers by certificate: `--client-cert client.pem --client-key client.key`
+  next to `--sensitive --allow-host`. The server presents it to those hosts.
 - A name is one kind of secret: a secret that members have already read
   cannot be turned into a sensitive one. Use a new name, and a new value.
 

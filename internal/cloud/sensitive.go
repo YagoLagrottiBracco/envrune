@@ -102,6 +102,23 @@ func (s *Service) Proxy(ctx context.Context) (*ProxyIdentity, error) {
 // Only owners and admins of the environment may do this, and no member's
 // device can read the value back, this one included.
 func (s *Service) SetSensitive(ctx context.Context, path Path, value []byte, hosts []string, fingerprint string) (uint64, error) {
+	return s.setSensitive(ctx, path, fingerprint, func(d *cloudcrypto.Device, org, project, env string, version uint64, recipient string) (*cloudcrypto.SensitiveRecord, error) {
+		return d.SealSensitive(org, project, env, path.Name, version, value, hosts, recipient)
+	})
+}
+
+// SetSensitiveCertificate is SetSensitive for a client certificate and its
+// private key, in PEM, which the server presents to hosts for services
+// that identify their callers that way.
+func (s *Service) SetSensitiveCertificate(ctx context.Context, path Path, certificate, key []byte, hosts []string, fingerprint string) (uint64, error) {
+	return s.setSensitive(ctx, path, fingerprint, func(d *cloudcrypto.Device, org, project, env string, version uint64, recipient string) (*cloudcrypto.SensitiveRecord, error) {
+		return d.SealSensitiveCertificate(org, project, env, path.Name, version, certificate, key, hosts, recipient)
+	})
+}
+
+type sealFunc func(d *cloudcrypto.Device, org, project, env string, version uint64, recipient string) (*cloudcrypto.SensitiveRecord, error)
+
+func (s *Service) setSensitive(ctx context.Context, path Path, fingerprint string, seal sealFunc) (uint64, error) {
 	st, c, device, err := s.ready()
 	if err != nil {
 		return 0, err
@@ -142,7 +159,7 @@ func (s *Service) SetSensitive(ctx context.Context, path Path, value []byte, hos
 			current = sec.Version
 		}
 	}
-	record, err := device.SealSensitive(v.trust.OrgID, p.ID, e.ID, path.Name, current+1, value, hosts, recipient)
+	record, err := seal(device, v.trust.OrgID, p.ID, e.ID, current+1, recipient)
 	if err != nil {
 		return 0, err
 	}

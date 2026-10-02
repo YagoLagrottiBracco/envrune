@@ -1,6 +1,7 @@
 import { ApiError, authenticated, fromPostgres, notConfigured } from "@/lib/api";
 import { missing, proxyIdentity } from "@/lib/env";
 import { buildResponse, buildUpstream, ForwardRefused, type Substitution } from "@/lib/forward";
+import { sendWithCertificate } from "@/lib/mtls";
 import { openSensitive, type SensitiveRow } from "@/lib/sensitive";
 import { adminClient } from "@/lib/supabase/server";
 
@@ -84,7 +85,7 @@ async function forward(request: Request): Promise<Response> {
         throw new ForwardRefused(404, `no sensitive secret ${s.name} in that environment`);
       }
       const content = await openSensitive(identity, data as SensitiveRow);
-      substitutions.push({ placeholder: s.placeholder, value: content.value, hosts: content.hosts });
+      substitutions.push({ placeholder: s.placeholder, value: content.value, hosts: content.hosts, certificate: content.certificate, key: content.key });
     }
     const body = request.body ? new Uint8Array(await request.arrayBuffer()) : null;
     // Refuses a host that a secret does not allow, before anything is sent.
@@ -92,9 +93,22 @@ async function forward(request: Request): Promise<Response> {
     for (const s of named) {
       await ask(s, true);
     }
+    // A secret that is a client certificate is presented to the service.
+    const certificates = substitutions.filter((s) => s.certificate && s.key);
+    if (certificates.length > 1) {
+      throw new ForwardRefused(400, "a request can present one client certificate");
+    }
+    const signal = AbortSignal.timeout(55_000);
     let response: Response;
     try {
-      response = await fetch(upstream.url, { ...upstream.init, signal: AbortSignal.timeout(55_000) });
+      response =
+        certificates.length === 1
+          ? await sendWithCertificate(
+              upstream.url,
+              { method: upstream.init.method, headers: upstream.init.headers as Headers, body: upstream.init.body as Uint8Array | null, signal },
+              { certificate: certificates[0].certificate!, key: certificates[0].key! },
+            )
+          : await fetch(upstream.url, { ...upstream.init, signal });
     } catch {
       throw new ForwardRefused(502, `${host} could not be reached from the server`);
     }

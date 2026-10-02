@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,6 +32,11 @@ type SensitiveContent struct {
 	Version       uint64   `json:"version"`
 	Hosts         []string `json:"hosts"`
 	Value         []byte   `json:"value"`
+	// Certificate and Key, in PEM, are set instead of Value for a service
+	// that identifies its callers by a client certificate: the server
+	// presents them to the allowed hosts.
+	Certificate []byte `json:"certificate,omitempty"`
+	Key         []byte `json:"key,omitempty"`
 }
 
 // SensitiveRecord is one version of a sensitive secret as the server stores
@@ -91,15 +97,32 @@ func NormalizeHosts(hosts []string) ([]string, error) {
 // SealSensitive encrypts a value to the server's proxy identity, with the
 // hosts it may be sent to, and signs the record as this device.
 func (d *Device) SealSensitive(orgID, projectID, envID, name string, version uint64, value []byte, hosts []string, proxyRecipient string) (*SensitiveRecord, error) {
+	return d.sealSensitive(SensitiveContent{OrgID: orgID, ProjectID: projectID, EnvironmentID: envID, Name: name, Version: version, Value: value}, hosts, proxyRecipient)
+}
+
+// SealSensitiveCertificate encrypts a client certificate and its private
+// key, both in PEM, to the server's proxy identity, with the hosts they may
+// be presented to. The two must belong together.
+func (d *Device) SealSensitiveCertificate(orgID, projectID, envID, name string, version uint64, certificate, key []byte, hosts []string, proxyRecipient string) (*SensitiveRecord, error) {
+	if _, err := tls.X509KeyPair(certificate, key); err != nil {
+		return nil, fmt.Errorf("the certificate and the key are not a pair in PEM: %w", ErrMalformed)
+	}
+	return d.sealSensitive(SensitiveContent{OrgID: orgID, ProjectID: projectID, EnvironmentID: envID, Name: name, Version: version,
+		Certificate: certificate, Key: key}, hosts, proxyRecipient)
+}
+
+func (d *Device) sealSensitive(content SensitiveContent, hosts []string, proxyRecipient string) (*SensitiveRecord, error) {
+	orgID, projectID, envID, name, version := content.OrgID, content.ProjectID, content.EnvironmentID, content.Name, content.Version
 	hosts, err := NormalizeHosts(hosts)
 	if err != nil {
 		return nil, err
 	}
+	content.Hosts = hosts
 	recipient, err := age.ParseX25519Recipient(proxyRecipient)
 	if err != nil {
 		return nil, fmt.Errorf("the proxy identity is not valid: %w", ErrMalformed)
 	}
-	plain, err := json.Marshal(SensitiveContent{OrgID: orgID, ProjectID: projectID, EnvironmentID: envID, Name: name, Version: version, Hosts: hosts, Value: value})
+	plain, err := json.Marshal(content)
 	if err != nil {
 		return nil, err
 	}

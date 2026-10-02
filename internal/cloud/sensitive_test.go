@@ -1,7 +1,10 @@
 package cloud
 
 import (
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -90,6 +93,40 @@ func TestSensitiveSecretsAreSealedToTheProxyAndWriteOnly(t *testing.T) {
 	// Rotating it is setting a new value.
 	if v := must[uint64](t)(alice.SetSensitive(ctx, sensitivePath, []byte("the-next-value"), []string{"api.example.com", "b.example.org"}, fingerprint)); v != 2 {
 		t.Fatalf("version %d", v)
+	}
+}
+
+func TestAClientCertificateIsStoredAsASensitiveSecret(t *testing.T) {
+	f := newFakeServer(t)
+	alice, _ := founder(t, f)
+	proxy := must[*ProxyIdentity](t)(alice.Proxy(ctx))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "cloud", "web", "src", "lib", "mtls-vector.json"))
+	if err != nil {
+		t.Skip("no test certificates")
+	}
+	var v struct {
+		ClientCert string `json:"client_cert"`
+		ClientKey  string `json:"client_key"`
+		ServerKey  string `json:"server_key"`
+	}
+	ok(t, json.Unmarshal(raw, &v))
+	path := Path{Org: "acme", Project: "shop", Env: "production", Name: "bank-certificate"}
+	if _, err := alice.SetSensitiveCertificate(ctx, path, []byte(v.ClientCert), []byte(v.ServerKey), []string{"api.example.com"}, proxy.Fingerprint); err == nil {
+		t.Fatal("a certificate with another key was stored")
+	}
+	must[uint64](t)(alice.SetSensitiveCertificate(ctx, path, []byte(v.ClientCert), []byte(v.ClientKey), []string{"api.example.com"}, proxy.Fingerprint))
+	f.mu.Lock()
+	stored := f.sensitive[secretID("env-shop-production", "bank-certificate")]
+	record := stored.json.record("org-acme", "prj-shop")
+	record.Sealed = stored.sealed
+	identity := f.proxy
+	f.mu.Unlock()
+	content := must[*cloudcrypto.SensitiveContent](t)(cloudcrypto.OpenSensitive(record, identity))
+	if string(content.Certificate) != v.ClientCert || string(content.Key) != v.ClientKey {
+		t.Fatal("the proxy opened another certificate")
+	}
+	if list := sensitiveList(t, alice); len(list) != 1 || !list[0].Verified {
+		t.Fatalf("alice sees %+v", list)
 	}
 }
 

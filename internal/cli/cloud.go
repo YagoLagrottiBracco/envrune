@@ -35,6 +35,7 @@ const cloudUsage = `cloud <command>
   set <org/project/env/name> --generate [--length n]
   set ... --transition 24h                 Say how long the previous value still works
   set ... --sensitive --allow-host h[,h]   A value members use but never receive
+  set ... --sensitive --allow-host h --client-cert c.pem --client-key k.pem
   status <org/project/env>                 Who already has the current values
   copy <org/project/env/name> [--clear-after 30s]
   pull <org/project/env> [--allow-older]   Refresh this device's copy of an environment
@@ -626,8 +627,12 @@ func (w Workspace) cloudEnv(argv []string) int {
 }
 
 func (w Workspace) cloudSet(argv []string) int {
-	const usage = "cloud set <org/project/env/name> [--generate [--length <n>]] [--transition <24h|7d>] [--sensitive --allow-host <host[,host]>]"
-	a, err := parseArgs(argv, []string{"length", "transition", "allow-host"}, []string{"generate", "sensitive"}, false)
+	const usage = "cloud set <org/project/env/name> [--generate [--length <n>]] [--transition <24h|7d>] [--sensitive --allow-host <host[,host]> [--client-cert <file> --client-key <file>]]"
+	a, err := parseArgs(argv, []string{"length", "transition", "allow-host", "client-cert", "client-key"}, []string{"generate", "sensitive"}, false)
+	certFile, keyFile := a.options["client-cert"], a.options["client-key"]
+	if (certFile == "") != (keyFile == "") || (certFile != "" && (!a.flags["sensitive"] || a.flags["generate"])) {
+		return w.usageError(usage)
+	}
 	_, hasLength := a.options["length"]
 	hosts := splitScope(a.options["allow-host"])
 	_, hasTransition := a.options["transition"]
@@ -664,6 +669,28 @@ func (w Workspace) cloudSet(argv []string) int {
 				return 1
 			}
 		}
+	}
+	if certFile != "" {
+		// A client certificate and its key, for a service that identifies
+		// callers that way: sealed like a value, presented by the server.
+		certificate, err := readSecretFile(certFile)
+		if err != nil {
+			w.status().Error(err.Error())
+			return 1
+		}
+		key, err := readSecretFile(keyFile)
+		if err != nil {
+			w.status().Error(err.Error())
+			return 1
+		}
+		defer wipe(key)
+		version, err := w.cloudService().SetSensitiveCertificate(ctx, path, certificate, key, hosts, proxy.Fingerprint)
+		if err != nil {
+			return w.cloudFail(err)
+		}
+		w.status().Success(fmt.Sprintf("Stored %s, version %d: a client certificate the server presents to %s.", path, version, strings.Join(hosts, ", ")))
+		w.status().Info("Nobody can read it back, you included. Keep the files somewhere safe or delete them.")
+		return 0
 	}
 	var value []byte
 	if a.flags["generate"] {
