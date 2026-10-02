@@ -47,7 +47,7 @@ async function snapshot(client: SupabaseClient, org: { id: string; slug: string;
     rows(client.from("org_members").select("user_id, role, scope").eq("org_id", org.id)),
     rows(client.from("projects").select("id, slug, name, environments(id, slug, epoch, needs_rotation, secrets(id, name, current_version))").eq("org_id", org.id)),
     rows(client.from("machine_tokens").select("*").eq("org_id", org.id)),
-    rows(client.from("rotation_tasks").select("id, reason, subject_user_id, subject_token, created_at, rotation_items(secret_id, status)").eq("org_id", org.id)),
+    rows(client.from("rotation_tasks").select("id, reason, subject_user_id, subject_token, subject_device, created_at, rotation_items(secret_id, status)").eq("org_id", org.id)),
     rpc<unknown[]>(client, "sensitive_in_org", { p_org: org.id }),
   ]);
   const memberIds = members.map((m) => m.user_id);

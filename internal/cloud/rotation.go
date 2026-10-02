@@ -74,6 +74,8 @@ func (s *Service) Rotation(ctx context.Context, org string) ([]RotationTask, err
 	for _, r := range v.snap.Rotation {
 		task := RotationTask{ID: r.ID, Reason: r.Reason}
 		switch {
+		case r.SubjectUserID != nil && r.SubjectDevice != nil:
+			task.Subject = *r.SubjectUserID + " (" + *r.SubjectDevice + ")"
 		case r.SubjectUserID != nil:
 			task.Subject = *r.SubjectUserID
 		case r.SubjectToken != nil:

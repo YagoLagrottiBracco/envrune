@@ -139,6 +139,7 @@ type rotationJSON struct {
 	Reason        string  `json:"reason"`
 	SubjectUserID *string `json:"subject_user_id"`
 	SubjectToken  *string `json:"subject_token"`
+	SubjectDevice *string `json:"subject_device"`
 	CreatedAt     string  `json:"created_at"`
 	Items         []struct {
 		SecretID string `json:"secret_id"`

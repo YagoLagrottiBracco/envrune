@@ -329,9 +329,22 @@ func (f *fakeServer) revokeDevice(user string, r *http.Request) (any, int, error
 	}
 	now := time.Now().String()
 	d.RevokedAt = &now
+	for _, w := range f.wrapped {
+		if w.w.RecipientUserID != nil && *w.w.RecipientUserID == user && w.w.RecipientID == d.ID {
+			if e, _ := f.envInfo(w.env); e != nil {
+				e.needsRotation = true
+			}
+		}
+	}
 	f.wrapped = slices.DeleteFunc(f.wrapped, func(w *fakeWrapped) bool {
 		return w.w.RecipientUserID != nil && *w.w.RecipientUserID == user && w.w.RecipientID == d.ID
 	})
+	// What the device fetched waits for new values, in each organization.
+	for _, o := range f.orgs {
+		if m := f.role(o.id, user); m.Role != "" && m.Role != "removed" {
+			f.startRotation(o.id, "device revoked", &user, nil, &d.ID)
+		}
+	}
 	return nil, 204, nil
 }
 
@@ -571,6 +584,7 @@ func (f *fakeServer) getEnvironment(user string, r *http.Request) (any, int, err
 	}
 	f.fetches++
 	f.recordFetch(env, "user:"+user)
+	f.recordFetch(env, "device:"+user+":"+device)
 	f.read(env, fakeReader{user: user, device: device})
 	if e, p := f.envInfo(env); e != nil {
 		f.audit(p.org, user, "environment.fetch", p.slug+"/"+e.slug, fmt.Sprintf(`{"epoch": %d}`, e.epoch))
@@ -792,15 +806,19 @@ func (f *fakeServer) recordFetch(env, actor string) {
 
 // startRotation lists every secret of the environments the subject fetched,
 // and marks those environments for a new epoch.
-func (f *fakeServer) startRotation(org, reason string, user, token *string) {
+func (f *fakeServer) startRotation(org, reason string, user, token *string, device ...*string) {
 	actor := ""
-	if user != nil {
+	var subjectDevice *string
+	switch {
+	case len(device) == 1:
+		actor, subjectDevice = "device:"+*user+":"+*device[0], device[0]
+	case user != nil:
 		actor = "user:" + *user
-	} else {
+	default:
 		actor = "token:" + *token
 	}
 	task := &fakeRotation{org: org, rotationJSON: rotationJSON{ID: fmt.Sprintf("rot-%d", len(f.rotations)+1), Reason: reason,
-		SubjectUserID: user, SubjectToken: token, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
+		SubjectUserID: user, SubjectToken: token, SubjectDevice: subjectDevice, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 	for _, e := range f.envs {
 		if _, p := f.envInfo(e.id); p.org != org || !f.fetched[e.id][actor] {
 			continue
@@ -812,6 +830,10 @@ func (f *fakeServer) startRotation(org, reason string, user, token *string) {
 				Status   string `json:"status"`
 			}{secretID(e.id, s.Name), RotationPending})
 		}
+	}
+	// A device that fetched nothing here leaves nothing to replace.
+	if len(device) == 1 && len(task.Items) == 0 {
+		return
 	}
 	f.rotations = append(f.rotations, task)
 }

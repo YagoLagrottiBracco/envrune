@@ -4,7 +4,7 @@
 -- member. Signatures are placeholders: the database does not check them;
 -- the API and every client do.
 begin;
-select plan(64);
+select plan(66);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'alice@example.com'),
@@ -225,6 +225,16 @@ reset role;
 select is((select requests::int from public.sensitive_use), 2, 'requests are counted, not the checks before them');
 select is((select count(*)::int from public.audit_log where org_id = :'org' and action = 'secret.forward'), 1,
   'the audit log gets one entry per member, device, host, and hour');
+set local role authenticated;
+
+-- A lost device: its keys go, and what it fetched is listed to replace.
+select pg_temp.become('00000000-0000-0000-0000-00000000000c');
+select public.fetch_environment(:'env', 'carol-laptop');
+select public.revoke_device('carol-laptop');
+reset role;
+select is((select count(*)::int from public.rotation_tasks where org_id = :'org' and subject_device = 'carol-laptop'), 1,
+  'revoking a device opens a rotation for what it fetched');
+select is((select count(*)::int from public.wrapped_keys where recipient_id = 'carol-laptop'), 0, 'a revoked device keeps no wrapped keys');
 set local role authenticated;
 
 -- The audit log is append-only and hash-chained.

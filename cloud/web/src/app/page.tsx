@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { sessionClient } from "@/lib/supabase/server";
+import { revokeDevice } from "./actions";
 
 export default async function Home() {
   const supabase = await sessionClient();
@@ -28,6 +29,12 @@ export default async function Home() {
     .select("role, organizations(slug, name)")
     .eq("user_id", data.claims.sub)
     .neq("role", "removed");
+  const { data: devices } = await supabase
+    .from("devices")
+    .select("id, name, signature, revoked_at, registered_at")
+    .eq("user_id", data.claims.sub)
+    .eq("kind", "device")
+    .order("registered_at");
   return (
     <main className="mx-auto mt-16 max-w-3xl px-4">
       <h1 className="text-2xl font-semibold">Organizations</h1>
@@ -50,6 +57,32 @@ export default async function Home() {
           })}
         </ul>
       )}
+
+      <h2 className="mt-12 text-lg font-semibold">Your devices</h2>
+      <ul className="mt-4 divide-y divide-neutral-300 text-sm dark:divide-neutral-700">
+        {(devices ?? []).map((d) => (
+          <li key={d.id} className="flex items-center justify-between py-2">
+            <span>
+              {d.name || "unnamed"} <code className="text-xs text-neutral-500">{d.id}</code>
+            </span>
+            {d.revoked_at ? (
+              <span className="text-neutral-500">revoked</span>
+            ) : !d.signature ? (
+              <span className="text-neutral-500">waiting for approval</span>
+            ) : (
+              <form action={revokeDevice.bind(null, d.id)}>
+                <button type="submit" className="underline">
+                  Revoke
+                </button>
+              </form>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-sm text-neutral-500">
+        Revoke a device you lost. It is cut off at once, and the secrets it fetched are listed under rotation in each organization. Then run{" "}
+        <code>envrune cloud rotate</code> for the environments it used, from a device you still have: only a device can make new keys.
+      </p>
     </main>
   );
 }

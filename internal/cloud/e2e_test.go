@@ -337,6 +337,24 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("the server forwarded to a host the secret does not allow: %v", err)
 	}
 
+	// A lost device: alice revokes her third one. It is cut off, the
+	// environment it held a key for gets a new one, and what it fetched is
+	// listed.
+	lost := must[*Status](t)(recovered.Status()).DeviceID
+	if h := must[*Handover](t)(alice.RevokeDevice(ctx, lost)); len(h.Rotated) == 0 {
+		t.Fatalf("revoking a device rotated nothing: %+v", h)
+	}
+	if _, err := recovered.Pull(ctx, env, false); err == nil {
+		t.Fatal("a revoked device pulled")
+	}
+	revoked := false
+	for _, task := range must[[]RotationTask](t)(alice.Rotation(ctx, org)) {
+		revoked = revoked || task.Reason == "device revoked"
+	}
+	if !revoked {
+		t.Fatal("revoking a device opened no rotation")
+	}
+
 	// The offline limit is the admins' to set, and members' devices learn it.
 	if err := bob.SetOfflineDays(ctx, org, 30); err == nil {
 		t.Fatal("a consumer set the offline limit")

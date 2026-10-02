@@ -539,15 +539,59 @@ func (s *Service) ApproveDevice(ctx context.Context, id, fingerprint string) (in
 	return s.reshare(ctx, c, st, device, cert, nil)
 }
 
-func (s *Service) RevokeDevice(ctx context.Context, id string) error {
+// RevokeDevice ends one of this user's devices, such as a lost one: the
+// server stops serving it and deletes the keys wrapped for it. Then, since
+// the device held those keys, it starts a new epoch in every environment
+// that waits for one and that this user administers. The Handover lists
+// those, and the ones left for someone who administers them. Whoever has
+// the device may know the values it fetched: the server opens a guided
+// rotation for them (docs/cloud-operations.md).
+func (s *Service) RevokeDevice(ctx context.Context, id string) (*Handover, error) {
 	st, c, err := s.signedIn()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if id == st.DeviceID {
-		return errors.New("this is the device you are using; revoke it from another one")
+		return nil, errors.New("this is the device you are using; revoke it from another one")
 	}
-	return c.revokeDevice(ctx, id)
+	if err := c.revokeDevice(ctx, id); err != nil {
+		return nil, err
+	}
+	h := &Handover{}
+	if st.DeviceID == "" || !st.DeviceApproved {
+		return h, nil
+	}
+	orgs, err := c.orgs(ctx)
+	if err != nil {
+		return h, err
+	}
+	for _, o := range orgs {
+		v, err := s.view(ctx, c, o.Slug)
+		if err != nil {
+			return h, err
+		}
+		me, err := v.trust.Verify(v.certs, st.UserID)
+		if err != nil {
+			continue
+		}
+		for _, p := range v.snap.Projects {
+			for _, e := range p.Environments {
+				if !e.NeedsRotation {
+					continue
+				}
+				name := o.Slug + "/" + p.Slug + "/" + e.Slug
+				if !me.CanAdminister(p.Slug, e.Slug) {
+					h.Left = append(h.Left, name)
+					continue
+				}
+				if _, err := s.Rotate(ctx, o.Slug, p.Slug, e.Slug, false); err != nil {
+					return h, fmt.Errorf("%s: %w", name, err)
+				}
+				h.Rotated = append(h.Rotated, name)
+			}
+		}
+	}
+	return h, nil
 }
 
 // reshare wraps every environment key this user holds for target, another

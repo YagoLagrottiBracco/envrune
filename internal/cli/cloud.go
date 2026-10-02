@@ -334,11 +334,18 @@ func (w Workspace) cloudDevice(argv []string) int {
 			device.ID, shared, plural(shared, "environment key", "environment keys")))
 		return 0
 	case len(argv) == 2 && argv[0] == "revoke":
-		if err := s.RevokeDevice(ctx, argv[1]); err != nil {
+		h, err := s.RevokeDevice(ctx, argv[1])
+		if h != nil && len(h.Rotated) > 0 {
+			w.status().Info("Started a new key for " + strings.Join(h.Rotated, ", ") + ", which that device held.")
+		}
+		if err != nil {
 			return w.cloudFail(err)
 		}
-		w.status().Success("Revoked " + argv[1] + ".")
-		w.status().Warn("It held environment keys: rotate those environments with `envrune cloud rotate`.")
+		w.status().Success("Revoked " + argv[1] + ". The server no longer serves it.")
+		for _, env := range h.Left {
+			w.status().Warn(fmt.Sprintf("It held a key of %s, which you do not administer: someone who does must run `envrune cloud rotate %s`.", env, env))
+		}
+		w.status().Warn("Whoever has that device may know the values it fetched. `envrune cloud rotation <org>` lists each one to replace.")
 		return 0
 	}
 	return w.usageError(usage)
