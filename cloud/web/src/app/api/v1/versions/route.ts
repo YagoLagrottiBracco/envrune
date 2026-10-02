@@ -10,13 +10,21 @@ export const GET = handle(async (request) => {
   if (ids.length === 0 || ids.length > 50) {
     throw new ApiError(400, "name 1 to 50 environments with env=<id>");
   }
-  const { data, error } = await client.from("environments").select("id, epoch, secrets(name, current_version)").in("id", ids);
+  const { data, error } = await client
+    .from("environments")
+    .select("id, epoch, secrets(name, current_version), sensitive_secrets(name, current_version)")
+    .in("id", ids);
   if (error) {
     throw fromPostgres(error);
   }
-  const out: Record<string, { epoch: number; secrets: Record<string, number> }> = {};
+  const out: Record<string, { epoch: number; secrets: Record<string, number>; sensitive: Record<string, number> }> = {};
   for (const e of data) {
-    out[e.id] = { epoch: e.epoch, secrets: Object.fromEntries(e.secrets.map((s) => [s.name, s.current_version])) };
+    out[e.id] = {
+      epoch: e.epoch,
+      secrets: Object.fromEntries(e.secrets.map((s) => [s.name, s.current_version])),
+      // Which names are sensitive secrets, so a device knows before running.
+      sensitive: Object.fromEntries(e.sensitive_secrets.map((s) => [s.name, s.current_version])),
+    };
   }
   return Response.json(out);
 });

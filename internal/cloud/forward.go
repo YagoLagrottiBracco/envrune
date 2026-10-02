@@ -229,3 +229,14 @@ func (f *Forwarder) Do(req *http.Request) (*http.Response, error) {
 // refused tells the server's own answer from the service's, which the
 // server marks.
 func refused(resp *http.Response) bool { return resp.Header.Get("X-EnvRune-Forward") != "upstream" }
+
+// CachedSensitive reports whether path names a sensitive secret, from a
+// state the caller already read.
+func CachedSensitive(raw []byte, path Path) bool {
+	st, err := parseState(raw)
+	if err != nil {
+		return false
+	}
+	o := st.Orgs[path.Org]
+	return o != nil && slices.Contains(o.Sensitive[path.cacheKey()], path.Name)
+}

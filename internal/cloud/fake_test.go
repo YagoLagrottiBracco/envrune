@@ -855,6 +855,12 @@ func (f *fakeServer) getVersions(user string, r *http.Request) (any, int, error)
 		for _, s := range f.current(id) {
 			v.Secrets[s.Name] = s.Version
 		}
+		v.Sensitive = map[string]uint64{}
+		for _, s := range f.sensitive {
+			if s.json.EnvironmentID == id {
+				v.Sensitive[s.json.Name] = s.json.Version
+			}
+		}
 		out[id] = v
 	}
 	return out, 200, nil

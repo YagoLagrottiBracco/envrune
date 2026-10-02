@@ -2,8 +2,10 @@ package cloud
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"time"
 )
 
@@ -17,6 +19,9 @@ import (
 type envVersions struct {
 	Epoch   uint64            `json:"epoch"`
 	Secrets map[string]uint64 `json:"secrets"`
+	// Sensitive names the environment's sensitive secrets, which are in no
+	// device's copy; a device learns here that a reference stands for one.
+	Sensitive map[string]uint64 `json:"sensitive"`
 }
 
 func (c *Client) versions(ctx context.Context, envIDs []string) (map[string]envVersions, error) {
@@ -91,6 +96,19 @@ func (s *Service) Freshen(ctx context.Context, paths []Path, check time.Duration
 		if err != nil {
 			return nil, err
 		}
+		// What is sensitive in each environment, for commands to know offline.
+		_ = s.update(func(fresh *State) error {
+			for id, path := range asked {
+				if answer, ok := current[id]; ok {
+					o := fresh.org(path.Org)
+					if o.Sensitive == nil {
+						o.Sensitive = map[string][]string{}
+					}
+					o.Sensitive[path.cacheKey()] = slices.Sorted(maps.Keys(answer.Sensitive))
+				}
+			}
+			return nil
+		})
 		for id, path := range asked {
 			// An environment missing from the answer is one this member no
 			// longer sees; pulling says so in the server's words.

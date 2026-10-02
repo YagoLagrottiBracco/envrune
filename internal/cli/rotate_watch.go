@@ -28,6 +28,10 @@ type rotationWatch struct {
 	secrets     string // the envrune.yml that supplies the values
 	environment string
 	restart     bool // stop the command and start it again with the new values
+	// extra are variables the command gets that are not resolved from
+	// envrune.yml, such as the proxy's for sensitive secrets; they stay the
+	// same across restarts.
+	extra []runner.Pair
 }
 
 // changed resolves the command's values again and names the variables whose
@@ -44,6 +48,10 @@ func (w Workspace) changed(watch *rotationWatch, pairs []runner.Pair) (fresh []r
 	current := map[string][]byte{}
 	for _, p := range pairs {
 		current[p.Name] = p.Value
+	}
+	// Copies: the caller wipes what this returns.
+	for _, p := range watch.extra {
+		resolved.Pairs = append(resolved.Pairs, runner.Pair{Name: p.Name, Value: append([]byte(nil), p.Value...)})
 	}
 	for _, p := range resolved.Pairs {
 		if old, ok := current[p.Name]; !ok || !bytes.Equal(old, p.Value) {

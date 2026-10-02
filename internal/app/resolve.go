@@ -107,6 +107,12 @@ type Resolved struct {
 // use, as a consumer of its cloud environment.
 var ErrConsumerValue = errors.New("your role in the cloud environment (consumer) lets programs use this value, not show, copy, or export it")
 
+// ErrSensitive means a reference names a sensitive secret where no value
+// can stand for it: its value never reaches this machine, so it is used
+// only by a command started with `run` or by name, whose requests the
+// server completes.
+var ErrSensitive = errors.New("this is a sensitive secret, which only a command started with `envrune run` or by name can use")
+
 // CloudSource returns the verified values of one cloud environment and this
 // user's role in it; the role is empty for a machine token.
 type CloudSource func(path cloud.Path) (map[string][]byte, string, error)
@@ -135,6 +141,10 @@ type sources struct {
 	loaded   bool
 
 	cloud      CloudSource // nil without a cloud source
+	// sealed gives the placeholder of each sensitive secret a command may
+	// use, and sensitive tells that a secret is one, for the ones it may not.
+	sealed    map[string][]byte
+	sensitive func(cloud.Path) bool
 	cloudEnvs  map[string]*cloudEnv
 	links      map[string]string // project path → cloud link, "" for none
 	restricted bool
@@ -197,6 +207,14 @@ func (s *sources) value(projectPath, environment string, ref domain.Reference) (
 }
 
 func (s *sources) cloudValue(path cloud.Path) ([]byte, bool, error) {
+	// A sensitive secret has no value here: the program gets a placeholder,
+	// which the server replaces in its requests (docs/managed-keys.md).
+	if placeholder, ok := s.sealed[path.String()]; ok {
+		return append([]byte(nil), placeholder...), true, nil
+	}
+	if s.sensitive != nil && s.sensitive(path) {
+		return nil, false, &CloudError{Err: fmt.Errorf("%w: %s", ErrSensitive, path)}
+	}
 	if s.cloud == nil {
 		return nil, false, ErrNoCloud
 	}

@@ -27,6 +27,15 @@ All notable changes to EnvRune are listed here. The format follows
   the current values, `cloud set --transition 24h` records how long the
   previous value keeps working, and commands a consumer runs are noted and
   reported to the audit log as `secret.use`.
+- **Sensitive secrets** (EnvRune Cloud): a value that members use without
+  it ever reaching their machine. An owner or admin marks it with
+  `cloud set --sensitive --allow-host <host>`; `run` and named commands
+  give the program a placeholder, and its HTTPS requests to the allowed
+  hosts go through the server, which puts the value in. It works for any
+  service and knows none. The server can read such a secret, the one
+  exception to zero-knowledge, chosen per secret and only on a server
+  that has a proxy identity (`envrune cloud proxy keygen`). See
+  `docs/managed-keys.md`.
 - **EnvRune Cloud** (optional): share secrets between the members of a team
   and with CI through a server that stores only ciphertext. There is no
   hosted service yet; run the server yourself (`docs/self-hosting.md`) and

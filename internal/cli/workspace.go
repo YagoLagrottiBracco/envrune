@@ -481,8 +481,15 @@ func (w Workspace) run(argv []string) int {
 	if err != nil || len(a.rest) == 0 {
 		return w.usageError(usage)
 	}
+	var proxied []runner.Pair
 	if projectPath, err := w.findProject(); err == nil {
 		w.freshen(projectPath, a.options["env"])
+		extra, stop, err := w.seal(projectPath, a.options["env"])
+		defer stop()
+		if err != nil {
+			return w.cloudFail(err)
+		}
+		proxied = extra
 	}
 	projectPath, resolved, err := w.resolve(a.options["env"])
 	defer wipePairs(resolved.Pairs)
@@ -494,8 +501,8 @@ func (w Workspace) run(argv []string) int {
 	}
 	noteUse(w.Session, projectPath, resolved)
 	w.status().Info(fmt.Sprintf("Starting %s with %d variables from %s.", a.rest[0], len(resolved.Pairs), resolved.Environment))
-	watch := &rotationWatch{secrets: projectPath, environment: a.options["env"], restart: a.flags["restart-on-rotate"]}
-	return w.runWatching(runner.Spec{Command: a.rest, Additions: resolved.Pairs, Inherited: w.environ()}, !a.flags["no-redact"], watch)
+	watch := &rotationWatch{secrets: projectPath, environment: a.options["env"], restart: a.flags["restart-on-rotate"], extra: proxied}
+	return w.runWatching(runner.Spec{Command: a.rest, Additions: append(resolved.Pairs, proxied...), Inherited: w.environ()}, !a.flags["no-redact"], watch)
 }
 
 // runChild runs spec attached to this terminal, masking the values it was
@@ -572,6 +579,12 @@ func (w Workspace) runNamed(projectPath string, config project.Config, name stri
 		environment = command.Env
 	}
 	secrets, dir := command.Target(projectPath)
+	w.freshen(secrets, environment)
+	proxied, stop, err := w.seal(secrets, environment)
+	defer stop()
+	if err != nil {
+		return w.cloudFail(err)
+	}
 	resolved, err := w.resolveCommand(name, command, secrets, environment)
 	if err != nil {
 		return 1
@@ -581,8 +594,8 @@ func (w Workspace) runNamed(projectPath string, config project.Config, name stri
 		return 1
 	}
 	w.status().Info(fmt.Sprintf("Running %s with %d variables from %s.", name, len(resolved.Pairs), sourceLabel(command, resolved.Environment)))
-	watch := &rotationWatch{secrets: secrets, environment: environment, restart: a.flags["restart-on-rotate"]}
-	return w.runWatching(runner.Spec{Command: words, Additions: resolved.Pairs, Inherited: w.environ(), Dir: dir}, !a.flags["no-redact"], watch)
+	watch := &rotationWatch{secrets: secrets, environment: environment, restart: a.flags["restart-on-rotate"], extra: proxied}
+	return w.runWatching(runner.Spec{Command: words, Additions: append(resolved.Pairs, proxied...), Inherited: w.environ(), Dir: dir}, !a.flags["no-redact"], watch)
 }
 
 func (w Workspace) export(argv []string) int {

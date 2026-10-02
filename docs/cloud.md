@@ -175,6 +175,55 @@ value, or **stale** once its transition has passed. It shows what reached
 each device, not whether a process there was restarted. Those who
 administer the environment, and auditors, can see it.
 
+## Sensitive secrets: use without receiving
+
+A consumer cannot see a value, but their machine receives it. For a key that
+must not reach someone's machine at all, an owner or admin marks it
+**sensitive** and says which hosts it may be sent to:
+
+```sh
+envrune cloud set acme/shop/production/payments-key --sensitive --allow-host api.example.com
+```
+
+In `envrune.yml` it is referenced like any other cloud secret
+(`PAYMENTS_KEY: cloud.payments-key`). When a member runs the project,
+
+```sh
+envrune run -- npm start
+```
+
+the program gets a placeholder (`envrune_sealed_…`) instead of the value,
+and its HTTPS requests to `api.example.com` go through the EnvRune Cloud
+server, which puts the real value where the placeholder is: in a header, in
+Basic credentials, in the address, or in a JSON or form body. Requests to
+other hosts are not touched. It works the same for any service; EnvRune
+does not know what the key is for.
+
+What to know before using it:
+
+- **The server can read a sensitive secret.** It is the one exception to
+  the server never seeing a value, which is why it is chosen per secret and
+  why `cloud set --sensitive` shows the server's proxy identity and asks
+  first. The server needs `ENVRUNE_PROXY_IDENTITY`
+  ([self-hosting.md](self-hosting.md)).
+- **Nobody reads it back**, you included. To replace it, set it again.
+- **It hides the value; it does not limit what the value can do.** Someone
+  with access can make any request the service accepts. `envrune cloud
+  audit export` shows who used it, toward which host, and when
+  (`secret.forward`).
+- **It needs the server for every request**, so it does not work offline.
+- **The program must honour the standard proxy variables**
+  (`HTTPS_PROXY`), as most HTTP libraries do; Node reads them because
+  `envrune` sets `NODE_USE_ENV_PROXY`. A program that ignores them sends the
+  placeholder, which the service refuses.
+- **Only for values that travel in an HTTPS request.** A database password,
+  or a key the program signs with itself, stays an ordinary secret.
+- A name is one kind of secret: a secret that members have already read
+  cannot be turned into a sensitive one. Use a new name, and a new value.
+
+The design, and what a compromised server could do with sensitive secrets,
+is in [managed-keys.md](managed-keys.md).
+
 ## Audit log
 
 The server records every fetch, write, rotation, membership change, device

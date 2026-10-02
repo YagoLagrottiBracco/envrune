@@ -172,9 +172,10 @@ text with another wherever it appears in the request:
 In the response it does the reverse, so a service that echoes the value
 back shows the program the placeholder again.
 
-A sensitive secret may also be a **client certificate** with its private
-key. It has no placeholder: the server presents it to the allowed hosts, for
-services that identify callers by certificate.
+Services that identify callers by a **client certificate** instead of a
+value in the request are not covered yet. The same mechanism extends to
+them: the certificate and its key would be sealed like a value, and the
+server would present them to the allowed hosts.
 
 That is the whole mechanism, and it is the same for every secret. It covers
 any service where the secret travels in an HTTPS request, which is how API
@@ -196,9 +197,15 @@ through the variables runtimes read for extra authorities
 `CURL_CA_BUNDLE`). Nothing is installed on the machine. What envrune sees
 this way is what the program sent: the placeholder, never the value.
 
-A program that ignores those variables cannot be redirected this way. For
-it, a second variable can hold an address to use as the service's base
-address (`cloud.<name>.proxy`), which leads to the same place.
+Two limits follow. A program that ignores those variables cannot be
+redirected this way, and its requests would carry the placeholder to the
+service, which refuses it: nothing leaks, but nothing works. And requests
+that do not take the detour leave this computer directly, so a network that
+only lets traffic out through its own proxy is not supported yet.
+
+`run` and named commands set this up. `up`, `mcp`, and commands that would
+show a value (`env`, `export`, `copy`) refuse an environment's sensitive
+secrets, saying why; `doctor` counts them as present.
 
 ### What it costs: the server can read a sensitive secret
 
@@ -275,8 +282,9 @@ proxy identity.
 
 1. **Rotation that distributes itself**, and the record of use. These need
    no exception to zero-knowledge.
-2. **Sensitive secrets**: marking and storage, the server's forwarding, the
-   loopback proxy in `run`, then client certificates.
+2. **Sensitive secrets**: marking and storage, the server's forwarding, and
+   the loopback proxy in `run`. Client certificates, `up`, and networks
+   that require their own proxy come after.
 
 Decided along the way:
 

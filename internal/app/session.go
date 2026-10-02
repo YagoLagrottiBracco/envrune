@@ -41,6 +41,9 @@ type Session struct {
 	// cloudSource replaces the vault's cloud cache, such as a machine
 	// token fetching from the server in CI.
 	cloudSource CloudSource
+	// sealed holds the placeholders that stand for sensitive cloud secrets
+	// while a command runs, by "org/project/env/name".
+	sealed map[string][]byte
 }
 
 // UseCloudSource makes cloud references resolve from source, as CI does
@@ -221,7 +224,8 @@ func (s *Session) HasIn(projectPath, environment, rawReference string) (bool, er
 	switch {
 	case errors.Is(err, vault.ErrUnknownReference):
 		return false, nil
-	case errors.Is(err, ErrConsumerValue):
+	case errors.Is(err, ErrConsumerValue), errors.Is(err, ErrSensitive):
+		// It exists; this user's commands use it without it being shown.
 		return true, nil
 	}
 	wipe(value)
@@ -477,7 +481,7 @@ func (s *Session) Snapshot() DashboardSnapshot {
 }
 
 func (s *Session) sources() *sources {
-	return &sources{vault: s.vault, identity: s.identityLocked, cloud: s.cloudLocked()}
+	return &sources{vault: s.vault, identity: s.identityLocked, cloud: s.cloudLocked(), sealed: s.sealed, sensitive: s.sensitiveLocked()}
 }
 
 // cloudLocked returns where cloud references resolve from: the configured
