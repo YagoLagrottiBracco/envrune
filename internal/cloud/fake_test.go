@@ -54,6 +54,8 @@ type fakeServer struct {
 	// to it, by secret id.
 	proxy     *age.X25519Identity
 	sensitive map[string]*fakeSensitive
+	// grants are the requests for access for a limited time, by organization.
+	grants []*fakeGrant
 	// upstream plays the services that forwarded requests go to, and
 	// forwarded counts them by "user device secret host".
 	upstream   http.Handler
@@ -101,6 +103,13 @@ type fakeWrapped struct {
 type fakeSensitive struct {
 	json   sensitiveJSON
 	sealed []byte
+}
+
+// fakeGrant is a request for access and what became of it.
+type fakeGrant struct {
+	AccessGrant
+	org       string
+	decidedAt time.Time
 }
 
 // fakeReader is a member's device, or a machine token.
@@ -160,6 +169,9 @@ func newFakeServer(t *testing.T) *fakeServer {
 	route("GET /api/v1/orgs/{org}", f.getOrg)
 	route("PATCH /api/v1/orgs/{org}", f.patchOrg)
 	route("PUT /api/v1/orgs/{org}/policy", f.putPolicy)
+	route("GET /api/v1/orgs/{org}/access", f.getAccess)
+	route("POST /api/v1/orgs/{org}/access", f.postAccess)
+	route("POST /api/v1/access/{id}", f.decideAccess)
 	route("POST /api/v1/orgs/{org}/members", f.postMember)
 	route("POST /api/v1/orgs/{org}/projects", f.postProject)
 	route("POST /api/v1/orgs/{org}/projects/{project}/environments", f.postEnvironment)
@@ -229,14 +241,140 @@ func (f *fakeServer) canUse(env, user string) bool {
 	e, p := f.envInfo(env)
 	m := f.role(p.org, user)
 	return e != nil && slices.Contains([]string{"owner", "admin", "maintainer", "consumer"}, m.Role) && cloudcrypto.Allows(m.Scope, p.slug, e.slug) &&
-		!f.policyDenies(p.org, m.Role, p.slug, e.slug)
+		!f.policyDenies(p.org, m.Role, p.slug, e.slug) && !f.grantExpired(p.org, user, p.slug, e.slug)
+}
+
+// grantExpired reports that the member's hold on the environment came from
+// a grant whose time is up.
+func (f *fakeServer) grantExpired(org, user, project, env string) bool {
+	return slices.ContainsFunc(f.grants, func(g *fakeGrant) bool {
+		return g.org == org && g.UserID == user && g.Status == "approved" && !time.Now().Before(*g.ExpiresAt) &&
+			cloudcrypto.Allows(g.Scope, project, env) && !cloudcrypto.Allows(g.BaseScope, project, env)
+	})
+}
+
+func (f *fakeServer) getAccess(user string, r *http.Request) (any, int, error) {
+	o := f.orgBySlug(r.PathValue("org"), user)
+	if o == nil {
+		return fail(404, errNotFound)
+	}
+	out := []AccessGrant{}
+	for i := len(f.grants) - 1; i >= 0; i-- {
+		if g := f.grants[i]; g.org == o.id && (g.UserID == user || f.isAdmin(o.id, user)) {
+			out = append(out, g.AccessGrant)
+		}
+	}
+	return out, 200, nil
+}
+
+func (f *fakeServer) postAccess(user string, r *http.Request) (any, int, error) {
+	o := f.orgBySlug(r.PathValue("org"), user)
+	b := decode[struct {
+		Scope   []string `json:"scope"`
+		Minutes int      `json:"minutes"`
+		Reason  string   `json:"reason"`
+	}](r)
+	if o == nil || f.role(o.id, user).Role == "auditor" {
+		return fail(403, errForbidden)
+	}
+	if len(b.Scope) == 0 || b.Minutes < 5 || b.Minutes > 10080 {
+		return fail(400, fmt.Errorf("invalid request"))
+	}
+	if slices.ContainsFunc(f.grants, func(g *fakeGrant) bool { return g.org == o.id && g.UserID == user && g.Status == "pending" }) {
+		return fail(409, fmt.Errorf("you already have a request waiting"))
+	}
+	g := &fakeGrant{org: o.id, AccessGrant: AccessGrant{ID: fmt.Sprintf("grant-%d", len(f.grants)+1), UserID: user, Scope: b.Scope,
+		Minutes: b.Minutes, Reason: b.Reason, Status: "pending", RequestedAt: time.Now()}}
+	f.grants = append(f.grants, g)
+	f.audit(o.id, user, "access.request", user, `{}`)
+	return map[string]string{"id": g.ID}, 201, nil
+}
+
+func (f *fakeServer) decideAccess(user string, r *http.Request) (any, int, error) {
+	b := decode[struct {
+		Decision  string   `json:"decision"`
+		BaseScope []string `json:"base_scope"`
+	}](r)
+	for _, g := range f.grants {
+		if g.ID != r.PathValue("id") {
+			continue
+		}
+		if !f.isAdmin(g.org, user) {
+			return fail(403, errForbidden)
+		}
+		switch b.Decision {
+		case "deny":
+			if g.Status != "pending" {
+				return fail(404, errNotFound)
+			}
+			g.Status = "denied"
+			return nil, 204, nil
+		case "approve":
+			held := f.role(g.org, g.UserID).Scope
+			covers := func(all, part []string) bool {
+				return !slices.ContainsFunc(part, func(x string) bool { return !slices.Contains(all, x) })
+			}
+			if g.Status != "pending" {
+				return fail(404, errNotFound)
+			}
+			if !covers(held, g.Scope) || !covers(held, b.BaseScope) || !covers(append(slices.Clone(b.BaseScope), g.Scope...), held) {
+				return fail(400, fmt.Errorf("the signed scope is not the scope before plus what was asked"))
+			}
+			until := time.Now().Add(time.Duration(g.Minutes) * time.Minute)
+			g.Status, g.ExpiresAt, g.BaseScope, g.decidedAt = "approved", &until, b.BaseScope, time.Now()
+			if g.BaseScope == nil {
+				g.BaseScope = []string{}
+			}
+			f.audit(g.org, user, "access.approve", g.UserID, `{}`)
+			return map[string]any{"expires_at": until}, 200, nil
+		case "close":
+			if g.Status != "ended" || g.ListedAt != nil {
+				return nil, 204, nil
+			}
+			listed := time.Now()
+			g.ListedAt = &listed
+			task := &fakeRotation{org: g.org, rotationJSON: rotationJSON{ID: fmt.Sprintf("rot-%d", len(f.rotations)+1), Reason: "access ended",
+				SubjectUserID: &g.UserID, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
+			for _, e := range f.envs {
+				_, p := f.envInfo(e.id)
+				at, fetched := f.lastFetchBy(e.id, g.UserID)
+				if p.org != g.org || !cloudcrypto.Allows(g.Scope, p.slug, e.slug) || cloudcrypto.Allows(g.BaseScope, p.slug, e.slug) || !fetched || at.Before(g.decidedAt) {
+					continue
+				}
+				for _, sec := range f.current(e.id) {
+					task.Items = append(task.Items, struct {
+						SecretID string `json:"secret_id"`
+						Status   string `json:"status"`
+					}{secretID(e.id, sec.Name), RotationPending})
+				}
+			}
+			if len(task.Items) > 0 {
+				f.rotations = append(f.rotations, task)
+			}
+			f.audit(g.org, user, "access.end", g.UserID, `{}`)
+			return nil, 204, nil
+		}
+		return fail(400, fmt.Errorf("unknown decision"))
+	}
+	return fail(404, errNotFound)
+}
+
+// lastFetchBy is when any device of user last fetched the environment.
+func (f *fakeServer) lastFetchBy(env, user string) (time.Time, bool) {
+	var last time.Time
+	for reader, at := range f.lastFetch[env] {
+		if reader.user == user && at.After(last) {
+			last = at
+		}
+	}
+	return last, !last.IsZero()
 }
 
 func (f *fakeServer) canAdminister(env, user string) bool {
 	e, p := f.envInfo(env)
 	m := f.role(p.org, user)
 	return e != nil && slices.Contains([]string{"owner", "admin", "maintainer"}, m.Role) && cloudcrypto.Allows(m.Scope, p.slug, e.slug) &&
-		!f.policyDenies(p.org, m.Role, p.slug, e.slug)
+		!f.policyDenies(p.org, m.Role, p.slug, e.slug) && !f.grantExpired(p.org, user, p.slug, e.slug)
 }
 
 // policyDenies applies the organization's rules, which never touch owners.
@@ -478,6 +616,11 @@ func (f *fakeServer) getOrg(user string, r *http.Request) (any, int, error) {
 			snap.Sensitive = append(snap.Sensitive, sec.json)
 		}
 	}
+	for _, g := range f.grants {
+		if g.org == o.id && g.Status == "approved" && !time.Now().Before(*g.ExpiresAt) {
+			snap.Expired = append(snap.Expired, expiredJSON{UserID: g.UserID, Scope: g.Scope, BaseScope: g.BaseScope})
+		}
+	}
 	return snap, 200, nil
 }
 
@@ -543,6 +686,13 @@ func (f *fakeServer) postMember(user string, r *http.Request) (any, int, error) 
 	f.certs = append(f.certs, certJSON{OrgID: o.id, UserID: b.UserID, AccountKey: f.profiles[b.UserID].key, Role: b.Role, Scope: b.Scope,
 		IssuedAtUS: b.IssuedAtUS, IssuerID: user, Signature: b.Signature})
 	f.members[o.id][b.UserID] = memberJSON{UserID: b.UserID, Role: b.Role, Scope: b.Scope}
+	// A later certificate is an administrator's decision about the member's
+	// scope, and ends the grants approved before it.
+	for _, g := range f.grants {
+		if g.org == o.id && g.UserID == b.UserID && g.Status == "approved" {
+			g.Status = "ended"
+		}
+	}
 	scope, _ := json.Marshal(nonNil(b.Scope))
 	f.audit(o.id, user, "member."+b.Role, b.UserID, `{"scope": `+string(scope)+`}`)
 	if b.Role == "removed" {

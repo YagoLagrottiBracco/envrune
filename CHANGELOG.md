@@ -27,6 +27,21 @@ All notable changes to EnvRune are listed here. The format follows
   the current values, `cloud set --transition 24h` records how long the
   previous value keeps working, and commands a consumer runs are noted and
   reported to the audit log as `secret.use`.
+- **Running a team on EnvRune Cloud** (`docs/cloud-operations.md`):
+  - **A lost device:** `cloud device revoke`, or the panel, cuts it off;
+    the CLI starts new keys for what it held, and what it fetched is listed
+    to replace.
+  - **A compromised project:** `cloud emergency <org/project>` revokes the
+    tokens that reach it and takes its keys from every device but the
+    owner's, until they are shared again.
+  - **Rules:** `cloud policy set <org> <file>` denies roles an environment
+    whatever their scope, such as consumers in production; owners and
+    machine tokens are never denied.
+  - **Notifications:** `cloud webhook set <org> <address>` has the server
+    post each event, signed, to an address of yours. Events hold names,
+    never values.
+  - **Access for a limited time:** `cloud access request`, `approve`, and
+    `end`. The server stops serving it by itself when the time is up.
 - **More in envrune.yml** (`docs/project-file.md`), each a new key that
   leaves existing files as they were:
   - `extends:` lets an environment build on another, and `workspace:` lets

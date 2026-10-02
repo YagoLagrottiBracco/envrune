@@ -56,11 +56,19 @@ func CheckPolicy(rules []PolicyRule) error {
 	return nil
 }
 
-// denied reports whether the organization's rules deny a member of role
-// the environment.
+// denied reports whether the server refuses a verified member an
+// environment their scope covers: by the organization's rules, or because
+// their access for a limited time has run out.
 func (v *view) denied(m cloudcrypto.Membership, project, env string) bool {
 	if m.Role == cloudcrypto.RoleOwner {
 		return false
+	}
+	// Access for a limited time that has run out is refused by the server
+	// until an administrator signs the scope back.
+	if slices.ContainsFunc(v.snap.Expired, func(x expiredJSON) bool {
+		return x.UserID == m.UserID && cloudcrypto.Allows(x.Scope, project, env) && !cloudcrypto.Allows(x.BaseScope, project, env)
+	}) {
+		return true
 	}
 	return slices.ContainsFunc(v.snap.Policy, func(r PolicyRule) bool { return r.matches(project, env) && slices.Contains(r.Deny, m.Role) })
 }

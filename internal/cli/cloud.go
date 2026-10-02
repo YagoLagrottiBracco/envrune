@@ -48,6 +48,7 @@ const cloudUsage = `cloud <command>
   token revoke <id>
   import-team <org/project/env> [--relink] Move envrune.team.json's values to the cloud
   policy show <org> | set <org> <file> | clear <org>   Rules about who may fetch what
+  access request <org/project/env> --for 4h | list <org> | approve|deny|end <org> <id>
   webhook set <org> <address> | show <org> | clear <org>   Be told what happens
   emergency <org/project>                  Take a compromised project's keys from everyone
   proxy keygen                             A proxy identity, for whoever runs a server
@@ -183,6 +184,8 @@ func (w Workspace) cloud(argv []string) int {
 		return w.cloudPolicy(rest)
 	case "webhook":
 		return w.cloudWebhook(rest)
+	case "access":
+		return w.cloudAccess(rest)
 	}
 	return w.usageError(cloudUsage)
 }

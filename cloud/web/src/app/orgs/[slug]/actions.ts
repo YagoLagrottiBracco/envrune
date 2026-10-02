@@ -16,3 +16,16 @@ export async function acceptRotationItem(slug: string, task: string, secret: str
   }
   revalidatePath(`/orgs/${slug}`);
 }
+
+/**
+ * Refuses a waiting request for access. Approving one takes a signature,
+ * so it is done with the CLI; refusing takes none.
+ */
+export async function denyAccess(slug: string, request: string): Promise<void> {
+  const supabase = await sessionClient();
+  const { error } = await supabase.rpc("deny_access", { p_id: request });
+  if (error) {
+    throw new Error("Could not deny that request. Only owners and admins decide requests.");
+  }
+  revalidatePath(`/orgs/${slug}`);
+}

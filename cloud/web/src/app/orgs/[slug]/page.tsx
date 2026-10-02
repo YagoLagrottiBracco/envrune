@@ -1,13 +1,18 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { sessionClient } from "@/lib/supabase/server";
-import { acceptRotationItem } from "./actions";
+import { acceptRotationItem, denyAccess } from "./actions";
 
 // Metadata only: names, versions, roles, devices, rotation, and the audit
 // log. The panel never decrypts values, and adding a member or approving a
 // device happens in the CLI, which signs and wraps keys.
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+/** Whether a time the database returned has passed, when the page is rendered for a request. */
+function isPast(time: string): boolean {
+  return Date.parse(time) <= Date.now();
+}
 
 export default async function OrgPage({ params }: PageProps<"/orgs/[slug]">) {
   const { slug } = await params;
@@ -20,13 +25,16 @@ export default async function OrgPage({ params }: PageProps<"/orgs/[slug]">) {
   if (!org) {
     notFound();
   }
-  const [members, projects, tasks, audit, tokens] = await Promise.all([
+  const [members, projects, tasks, audit, tokens, access] = await Promise.all([
     supabase.from("org_members").select("user_id, role, scope").eq("org_id", org.id).order("role"),
     supabase.from("projects").select("slug, name, environments(id, slug, epoch, needs_rotation, secrets(name, current_version))").eq("org_id", org.id).order("slug"),
     supabase.from("rotation_tasks").select("id, reason, created_at, rotation_items(secret_id, status, secrets(name, environments(slug, projects(slug))))").eq("org_id", org.id).order("created_at", { ascending: false }),
     supabase.from("audit_log").select("id, at, actor_user_id, actor_token_id, action, target").eq("org_id", org.id).order("id", { ascending: false }).limit(50),
     supabase.from("machine_tokens").select("id, name, scope, expires_at, revoked_at, last_used_at").eq("org_id", org.id),
+    supabase.from("access_grants").select("id, user_id, scope, minutes, reason, status, expires_at").eq("org_id", org.id).in("status", ["pending", "approved"]).order("requested_at"),
   ]);
+  const requests = (access.data ?? []).filter((g: any) => g.status === "pending");
+  const overdue = (access.data ?? []).filter((g: any) => g.status === "approved" && isPast(g.expires_at));
   const me = members.data?.find((m) => m.user_id === claims.claims.sub);
   const openTasks = (tasks.data ?? []).filter((t: any) => t.rotation_items.some((i: any) => i.status === "pending"));
   const canAccept = me?.role === "owner" || me?.role === "admin";
@@ -94,6 +102,40 @@ export default async function OrgPage({ params }: PageProps<"/orgs/[slug]">) {
               </div>
             );
           })}
+        </section>
+      )}
+
+      {(requests.length > 0 || overdue.length > 0) && (
+        <section className="mt-8 rounded border border-neutral-400 p-4">
+          <h2 className="font-semibold">Access for a limited time</h2>
+          <ul className="mt-2 text-sm">
+            {requests.map((g: any) => (
+              <li key={g.id} className="mt-2">
+                <code className="text-xs">{g.user_id}</code> asks for <code>{g.scope.join(", ")}</code> for {g.minutes} minutes
+                {g.reason && <> ({g.reason})</>}.
+                {canAccept ? (
+                  <>
+                    {" "}
+                    Approve with <code>envrune cloud access approve {org.slug} {g.id}</code>, which signs it, or{" "}
+                    <form action={denyAccess.bind(null, org.slug, g.id)} className="inline">
+                      <button type="submit" className="underline">
+                        deny
+                      </button>
+                    </form>
+                    .
+                  </>
+                ) : (
+                  " Waiting for an owner or admin."
+                )}
+              </li>
+            ))}
+            {overdue.map((g: any) => (
+              <li key={g.id} className="mt-2 text-amber-600">
+                The time of <code className="text-xs">{g.user_id}</code> in <code>{g.scope.join(", ")}</code> is up. The server already refuses them; finish with{" "}
+                <code>envrune cloud access end {org.slug} {g.id}</code>, which signs the scope back and starts new keys.
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 

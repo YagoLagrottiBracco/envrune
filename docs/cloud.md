@@ -251,6 +251,35 @@ The server refuses a denied role the environment's values, its keys, and
 the use of its sensitive secrets. Rules never apply to owners, who keep the
 environment manageable, or to machine tokens, which have their own scopes.
 
+## Access for a limited time
+
+A member who needs an environment for a while asks for it:
+
+```sh
+envrune cloud access request acme/shop/production --for 4h --reason "incident 214"
+```
+
+An owner or admin sees the request in the panel and in `envrune cloud access
+list acme`, and decides with the CLI, since approving signs the member's
+scope:
+
+```sh
+envrune cloud access approve acme <request>    # or: deny
+```
+
+When the time is up, **the server refuses the member by itself**: nobody
+has to remember. To finish, an administrator runs
+
+```sh
+envrune cloud access end acme <request>
+```
+
+which signs the scope back, starts new keys for the environments the member
+loses, and lists the values they fetched meanwhile to replace. It also ends
+access early. Until then the member's device may still hold a copy from
+before the time ran out; [an offline limit](#limiting-offline-use) bounds
+that.
+
 ## Being told what happens
 
 ```sh

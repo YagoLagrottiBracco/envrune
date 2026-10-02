@@ -220,6 +220,7 @@ output is already plain.
 | [Teams and CI](docs/teams-and-ci.md) | Share secrets with a team file and give pipelines access. |
 | [EnvRune Cloud](docs/cloud.md) | Share secrets with roles, CI tokens, guided rotation, and an audit log, end-to-end encrypted. |
 | [Self-hosting EnvRune Cloud](docs/self-hosting.md) | Run the server on your own infrastructure with Docker. |
+| [Running a team on EnvRune Cloud](docs/cloud-operations.md) | A lost device, a compromised project, rules about who may fetch, notifications, and access for a limited time. |
 | [Keys managed by their owner](docs/managed-keys.md) | See how a replaced value distributes itself, and how a sensitive secret is used without reaching a machine. |
 | [EnvRune Cloud's cryptographic design](docs/cloud-crypto.md) | Check what the server stores, what a compromised one can and cannot do, and how devices verify everything. |
 | [Windows and WSL](docs/wsl.md) | Keep one vault or two across Windows and WSL. |

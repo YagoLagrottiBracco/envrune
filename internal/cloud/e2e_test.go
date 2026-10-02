@@ -421,10 +421,38 @@ func TestEndToEnd(t *testing.T) {
 	}
 	ok(t, alice.ClearWebhook(ctx, org))
 
+	// Access for a limited time: bob asks for staging, alice approves, bob
+	// reads it; she ends it and he no longer can.
+	ok(t, alice.CreateEnvironment(ctx, org, "shop", "staging"))
+	stagingKey := Path{Org: org, Project: "shop", Env: "staging", Name: "db-url"}
+	staging := stagingKey
+	staging.Name = ""
+	must[uint64](t)(alice.Set(ctx, stagingKey, []byte("postgres://staging")))
+	if _, err := bob.Pull(ctx, staging, false); err == nil {
+		t.Fatal("bob read staging before asking")
+	}
+	grant := must[string](t)(bob.RequestAccess(ctx, org, []string{"shop/staging"}, time.Hour, "e2e"))
+	if _, err := bob.ApproveAccess(ctx, org, grant); err == nil {
+		t.Fatal("bob approved his own request")
+	}
+	must[time.Time](t)(alice.ApproveAccess(ctx, org, grant))
+	if got, _ := read(t, bob, stagingKey); got != "postgres://staging" {
+		t.Fatalf("with access bob read %q", got)
+	}
+	if h := must[*Handover](t)(alice.EndAccess(ctx, org, grant)); len(h.Rotated) != 1 {
+		t.Fatalf("ending the access handed over %+v", h)
+	}
+	if _, err := bob.Pull(ctx, staging, false); err == nil {
+		t.Fatal("bob read staging after his access ended")
+	}
+	if list := must[[]AccessGrant](t)(alice.AccessList(ctx, org)); len(list) != 1 || list[0].Status != "ended" || list[0].ListedAt == nil {
+		t.Fatalf("the grant is %+v", list)
+	}
+
 	// An emergency: alice takes the project's keys from everyone, bob has
 	// none until she shares the new ones.
 	emergency := must[*Emergency](t)(alice.Emergency(ctx, org, "shop"))
-	if len(emergency.Rotated) != 1 || emergency.Secrets == 0 {
+	if len(emergency.Rotated) != 2 || emergency.Secrets == 0 {
 		t.Fatalf("the emergency did %+v", emergency)
 	}
 	if _, err := bob.Pull(ctx, env, false); !errors.Is(err, ErrNoKey) {
@@ -446,7 +474,7 @@ func TestEndToEnd(t *testing.T) {
 		seen[entry.Action] = true
 	}
 	for _, action := range []string{"org.create", "member.consumer", "member.removed", "device.approve", "key.share", "secret.write",
-		"secret.reencrypt", "environment.fetch", "environment.rotate", "token.create", "token.revoke", "rotation.accepted", "org.offline_days", "secret.transition", "secret.use", "secret.sensitive", "secret.forward", "device.revoke", "project.emergency", "policy.set"} {
+		"secret.reencrypt", "environment.fetch", "environment.rotate", "token.create", "token.revoke", "rotation.accepted", "org.offline_days", "secret.transition", "secret.use", "secret.sensitive", "secret.forward", "device.revoke", "project.emergency", "policy.set", "access.request", "access.approve", "access.end"} {
 		if !seen[action] {
 			t.Errorf("the audit log has no %s", action)
 		}

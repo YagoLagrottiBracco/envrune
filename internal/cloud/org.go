@@ -549,7 +549,11 @@ func (s *Service) certify(ctx context.Context, org, userID string, key ed25519.P
 	if err == nil {
 		for _, p := range v.snap.Projects {
 			for _, e := range p.Environments {
-				if !(removal && before.CanUse(p.Slug, e.Slug)) && !(before.CanAdminister(p.Slug, e.Slug) && !after.CanAdminister(p.Slug, e.Slug)) {
+				// What they could read and no longer may, and what they could
+				// sign for and no longer may.
+				lostUse := before.CanUse(p.Slug, e.Slug) && (removal || !after.CanUse(p.Slug, e.Slug))
+				lostWrite := before.CanAdminister(p.Slug, e.Slug) && !after.CanAdminister(p.Slug, e.Slug)
+				if !lostUse && !lostWrite {
 					continue
 				}
 				if !me.CanAdminister(p.Slug, e.Slug) {

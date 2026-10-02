@@ -1,9 +1,8 @@
-# Running a team on EnvRune Cloud: design
+# Running a team on EnvRune Cloud
 
-Status: **being implemented, in the order below.** These are the things an
-owner does when something goes wrong, or wants to stop it going wrong:
-a lost device, a compromised project, rules about who may fetch what,
-notifications, and access for a limited time. They build on
+These are the things an owner does when something goes wrong, or wants to
+stop it going wrong: a lost device, a compromised project, rules about who
+may fetch what, notifications, and access for a limited time. They build on
 [cloud-crypto.md](cloud-crypto.md) and change nothing in it: the server
 still cannot read a value or add a recipient by itself.
 
@@ -131,13 +130,18 @@ Approving signs a membership with the wider scope, as `member set` does,
 and records until when it holds.
 
 - **At the end of the time, on the server, by itself:** the wider part of
-  the scope stops being served. The member cannot fetch the environment or
-  use its sensitive secrets from then on, without anyone doing anything. A
-  guided rotation opens for the secrets they fetched meanwhile.
-- **Finished by a CLI:** the next time an administrator's CLI talks to the
-  server, it signs the member's scope back to what it was and starts a new
-  epoch for the environment. `envrune cloud access list` shows what is
-  waiting for that.
+  the scope stops being served. The member cannot fetch the environment,
+  write to it, or use its sensitive secrets from then on, without anyone
+  doing anything, and other members' devices leave them out of new keys.
+- **Finished by a CLI:** `envrune cloud access end <org> <request>` signs
+  the member's scope back to what it was, starts a new epoch for the
+  environments they lose, and has the server list what they fetched
+  meanwhile for rotation. `envrune cloud access list` and the panel show
+  what is waiting for that. It also ends access before its time.
+
+An administrator who changes the member's scope with `member set` while a
+grant runs has decided what the scope is: the grant ends there, and its
+time running out later takes nothing away.
 
 Between the two, the member's device may still hold a key and a copy from
 before the time ran out; an organization that needs that gap closed sets an

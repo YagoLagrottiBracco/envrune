@@ -132,6 +132,15 @@ type Snapshot struct {
 	Rotation     []rotationJSON   `json:"rotation"`
 	Sensitive    []sensitiveJSON  `json:"sensitive"`
 	Policy       []PolicyRule     `json:"policy"`
+	Expired      []expiredJSON    `json:"expired"`
+}
+
+// expiredJSON is a member whose access for a limited time has run out: the
+// server no longer serves them the environments Scope added to BaseScope.
+type expiredJSON struct {
+	UserID    string   `json:"user_id"`
+	Scope     []string `json:"scope"`
+	BaseScope []string `json:"base_scope"`
 }
 
 // rotationJSON is a guided rotation: the secrets someone who left could read.

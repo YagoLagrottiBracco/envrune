@@ -4,7 +4,7 @@
 -- member. Signatures are placeholders: the database does not check them;
 -- the API and every client do.
 begin;
-select plan(78);
+select plan(84);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'alice@example.com'),
@@ -267,6 +267,28 @@ select public.fetch_environment(:'env', 'alice-laptop');
 reset role;
 select is((select count(*)::int from public.webhook_outbox where org_id = :'org' and payload->>'action' = 'org.offline_days'), 1, 'what happens is queued for the webhook');
 select is((select count(*)::int from public.webhook_outbox where org_id = :'org' and payload->>'action' = 'environment.fetch'), 0, 'fetches are not');
+set local role authenticated;
+
+-- Access for a limited time: asked by a member, approved by an admin after
+-- the wider scope was signed, and refused by the server once its time is up.
+select pg_temp.become('00000000-0000-0000-0000-00000000000c');
+select public.request_access(:'org', '{shop/staging}', 60, 'incident') as grant \gset
+select throws_ok(format($$ select public.approve_access(%L, '{shop/production}') $$, :'grant'), '42501', null, 'a member cannot approve their own request');
+select pg_temp.become('00000000-0000-0000-0000-00000000000b');
+select throws_ok(format($$ select public.approve_access(%L, '{shop/production}') $$, :'grant'), '22023', null,
+  'an approval needs the wider scope to be signed first');
+select public.add_membership(:'org', '00000000-0000-0000-0000-00000000000c', 'maintainer', '{shop/production,shop/staging}', 20, pg_temp.sig());
+select public.approve_access(:'grant', '{shop/production}');
+reset role;
+select ok(private.can_administer(:'staging', '00000000-0000-0000-0000-00000000000c'), 'approved access is served');
+update public.access_grants set expires_at = now() - interval '1 minute' where id = :'grant';
+select ok(not private.can_administer(:'staging', '00000000-0000-0000-0000-00000000000c'), 'once its time is up the server refuses it by itself');
+select ok(private.can_administer(:'env', '00000000-0000-0000-0000-00000000000c'), 'and keeps serving what the member had before');
+set local role authenticated;
+select pg_temp.become('00000000-0000-0000-0000-00000000000b');
+select public.add_membership(:'org', '00000000-0000-0000-0000-00000000000c', 'maintainer', '{shop/production}', 21, pg_temp.sig());
+reset role;
+select is((select status from public.access_grants where id = :'grant'), 'ended', 'signing the scope back ends the grant');
 set local role authenticated;
 
 -- An emergency: only an owner, and everyone else loses the project's keys.
