@@ -1,4 +1,6 @@
 import "server-only";
+import { after } from "next/server";
+import { deliverWebhooks } from "./deliver";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { missing } from "./env";
 import { bearerClient } from "./supabase/server";
@@ -35,6 +37,11 @@ export function handle<C>(fn: (request: Request, context: C) => Promise<Response
   return async (request: Request, context: C): Promise<Response> => {
     if (missing().length > 0) {
       return notConfigured();
+    }
+    // What a request changed may be an event some organization is told
+    // about: send what is waiting once the caller has their answer.
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      after(() => deliverWebhooks().catch(() => 0));
     }
     try {
       return await fn(request, context);

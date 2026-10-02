@@ -4,7 +4,7 @@
 -- member. Signatures are placeholders: the database does not check them;
 -- the API and every client do.
 begin;
-select plan(74);
+select plan(78);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'alice@example.com'),
@@ -252,6 +252,22 @@ select throws_ok(format($$ select public.put_secret_version(%L, 'other', 1, 2, d
 select pg_temp.become('00000000-0000-0000-0000-00000000000a');
 select lives_ok(format($$ select public.fetch_environment(%L, 'alice-laptop') $$, :'env'), 'an owner is never denied');
 select public.set_policy(:'org', '[]');
+
+-- Notifications: admins name an address; events queue for it, fetches do not.
+select pg_temp.become('00000000-0000-0000-0000-00000000000c');
+select throws_ok(format($$ select public.set_webhook(%L, 'https://hooks.example.com/x', decode(repeat('ab', 32), 'hex')) $$, :'org'), '42501', null,
+  'a maintainer cannot set the webhook');
+select pg_temp.become('00000000-0000-0000-0000-00000000000b');
+select public.set_webhook(:'org', 'https://hooks.example.com/x', decode(repeat('ab', 32), 'hex'));
+select ok((public.webhook_status(:'org')->>'secret') is null and public.webhook_status(:'org')->>'url' = 'https://hooks.example.com/x',
+  'the webhook is shown without its secret');
+select public.set_offline_days(:'org', 20);
+select pg_temp.become('00000000-0000-0000-0000-00000000000a');
+select public.fetch_environment(:'env', 'alice-laptop');
+reset role;
+select is((select count(*)::int from public.webhook_outbox where org_id = :'org' and payload->>'action' = 'org.offline_days'), 1, 'what happens is queued for the webhook');
+select is((select count(*)::int from public.webhook_outbox where org_id = :'org' and payload->>'action' = 'environment.fetch'), 0, 'fetches are not');
+set local role authenticated;
 
 -- An emergency: only an owner, and everyone else loses the project's keys.
 select pg_temp.become('00000000-0000-0000-0000-00000000000b');

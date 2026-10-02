@@ -251,6 +251,25 @@ The server refuses a denied role the environment's values, its keys, and
 the use of its sensitive secrets. Rules never apply to owners, who keep the
 environment manageable, or to machine tokens, which have their own scopes.
 
+## Being told what happens
+
+```sh
+envrune cloud webhook set acme https://hooks.example.com/envrune   # owners and admins
+envrune cloud webhook show acme
+envrune cloud webhook clear acme
+```
+
+The server posts each event to that address as JSON: the action, its
+target, who did it, and when. Events are the audit log's entries without
+the frequent ones (fetches, reported use, forwarded requests), so they
+never hold a value. `webhook set` prints a secret once; every request
+carries `X-EnvRune-Signature: sha256=<HMAC-SHA256 of the body, in hex>`,
+which the receiver checks before trusting an event.
+
+An event is tried up to eight times, and `webhook show` says when
+deliveries are failing. EnvRune knows no chat or mail service: point the
+webhook at whatever your team already uses to route notifications.
+
 ## When something goes wrong
 
 **A device is lost or stolen.** Revoke it from another device, or from the

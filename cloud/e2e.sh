@@ -20,6 +20,8 @@ export NEXT_PUBLIC_SUPABASE_URL="$API_URL" NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 # A proxy identity for this run, so sensitive secrets are tested too.
 ENVRUNE_PROXY_IDENTITY="$(node -e 'import("age-encryption").then((age) => age.generateIdentity()).then(console.log)')"
 export ENVRUNE_PROXY_IDENTITY
+# Webhooks may reach the receiver the test runs on this machine.
+export ENVRUNE_WEBHOOK_ALLOW_PRIVATE=1
 node node_modules/next/dist/bin/next build >/dev/null
 # The server the Docker image runs: the standalone build with its assets.
 cp -r public .next/standalone/

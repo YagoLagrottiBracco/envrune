@@ -12,7 +12,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -378,6 +380,46 @@ func TestEndToEnd(t *testing.T) {
 	}
 	ok(t, alice.SetPolicy(ctx, org, nil))
 	must[[]SecretInfo](t)(bob.Pull(ctx, env, false))
+
+	// Notifications: the server tells a receiver, with a signature it can
+	// check, what happens in the organization; never a fetch, never a value.
+	type delivery struct {
+		event, signature string
+		body             []byte
+	}
+	deliveries := make(chan delivery, 16)
+	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		deliveries <- delivery{r.Header.Get("X-EnvRune-Event"), r.Header.Get("X-EnvRune-Signature"), body}
+	}))
+	defer receiver.Close()
+	if _, err := bob.SetWebhook(ctx, org, receiver.URL); err == nil {
+		t.Fatal("a consumer set the webhook")
+	}
+	hookSecret := must[string](t)(alice.SetWebhook(ctx, org, receiver.URL))
+	ok(t, alice.SetOfflineDays(ctx, org, 45))
+	ok(t, alice.SetOfflineDays(ctx, org, 0))
+	var told []string
+	for deadline := time.After(20 * time.Second); len(told) < 2; {
+		select {
+		case d := <-deliveries:
+			if !VerifyWebhook(hookSecret, d.signature, d.body) {
+				t.Fatalf("an event's signature does not verify: %s", d.event)
+			}
+			if bytes.Contains(d.body, []byte("sk_live")) {
+				t.Fatalf("an event holds a value: %s", d.body)
+			}
+			if d.event == "org.offline_days" {
+				told = append(told, d.event)
+			}
+		case <-deadline:
+			t.Fatalf("the receiver was told %v", told)
+		}
+	}
+	if hook := must[*Webhook](t)(alice.WebhookStatus(ctx, org)); hook == nil || hook.URL != receiver.URL || hook.Failures != 0 {
+		t.Fatalf("the webhook is %+v", hook)
+	}
+	ok(t, alice.ClearWebhook(ctx, org))
 
 	// An emergency: alice takes the project's keys from everyone, bob has
 	// none until she shares the new ones.

@@ -113,6 +113,15 @@ docker build -t envrune-cloud cloud/web
 docker run -d -p 127.0.0.1:3000:3000 --env-file cloud/.env envrune-cloud
 ```
 
+Two more are optional, for [notifications](cloud.md#being-told-what-happens).
+`CRON_SECRET` opens `GET /api/v1/cron/webhooks`, which sends events whose
+receiver was down the first time; call it every few minutes from any
+scheduler with `Authorization: Bearer <CRON_SECRET>`. Events are sent right
+after they happen without it. `ENVRUNE_WEBHOOK_ALLOW_PRIVATE=1` lets
+organizations send events to addresses on your own network; by default the
+server only sends to public HTTPS addresses, so a webhook cannot be used to
+reach what only the server can.
+
 `GET /api/v1/health` answers `{"service":"envrune-cloud","api":1}` when the
 server is up and configured; the image's health check uses it. A server
 started without one of the three variables keeps running: its pages say
