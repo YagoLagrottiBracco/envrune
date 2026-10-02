@@ -239,6 +239,11 @@ to restart. For values issued by a provider, such as an API key, rotate at
 the provider and store the new value with `set`; the old one is kept the same
 way.
 
+A command that is already running notices by itself: it says that a value it
+was started with has been replaced, and `envrune run --restart-on-rotate --
+<command>` (or `envrune <name> --restart-on-rotate`) stops it and starts it
+again with the new value, within half a minute.
+
 ## Recovery and backups
 
 `envrune init` shows a **recovery key** once. Write it down and keep it

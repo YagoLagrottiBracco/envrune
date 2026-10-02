@@ -79,10 +79,13 @@ is enough for a rotation; it is not an emergency stop, which is
   child's, saying which variables have a new value and that the command
   must be restarted to use them. It never restarts something the developer
   did not ask it to.
-- With `--restart-on-rotate`: it stops the child as `up` already does
-  (SIGTERM, then SIGKILL after a grace period; the process group on Unix,
-  the job on Windows), resolves again, and starts it again. Three failed
-  restarts in a row stop the loop and report the failure.
+- With `--restart-on-rotate`: it stops the child and everything the child
+  started, as `up` already does, resolves again, and starts it again. If it
+  cannot be started again, `envrune` reports that and exits.
+
+Both look at every value the command was started with, wherever it comes
+from: a value replaced in the local vault or in the team file is noticed
+the same way as one replaced in the cloud.
 
 ### Transition period
 

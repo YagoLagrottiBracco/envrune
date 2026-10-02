@@ -17,6 +17,13 @@ All notable changes to EnvRune are listed here. The format follows
 
 ### Added
 
+- **Replaced values reach running commands.** A command started with `run`
+  or by name says when a value it was started with has been replaced, in the
+  vault, the team file, or the cloud, and `--restart-on-rotate` stops it and
+  starts it again with the new value. With EnvRune Cloud, `run`, named
+  commands, and `up` also ask the server for version numbers before they
+  start and pull what changed, so nobody has to run `cloud pull` after a
+  rotation.
 - **EnvRune Cloud** (optional): share secrets between the members of a team
   and with CI through a server that stores only ciphertext. There is no
   hosted service yet; run the server yourself (`docs/self-hosting.md`) and

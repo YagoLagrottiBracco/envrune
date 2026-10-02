@@ -47,7 +47,7 @@ Projects
   usage <reference>           Show which projects use a reference
   diff <env> <env>            Compare the variables of two environments
   types [ts|python] [--output path]  Generate env.d.ts or a pydantic Settings class
-  run [--env e] [--no-redact] [--] <command>
+  run [--env e] [--no-redact] [--restart-on-rotate] [--] <command>
                               Run a command; values it prints show as ****
   <name> [args]               Run a command defined under commands: in envrune.yml
   up [name...] [--env e]      Run several commands at once

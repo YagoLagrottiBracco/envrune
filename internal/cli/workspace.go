@@ -476,15 +476,15 @@ func (w Workspace) resolve(environment string) (string, app.Resolved, error) {
 }
 
 func (w Workspace) run(argv []string) int {
-	const usage = "run [--env <environment>] [--no-redact] [--] <command> [args...]"
-	a, err := parseArgs(argv, []string{"env"}, []string{"no-redact"}, true)
+	const usage = "run [--env <environment>] [--no-redact] [--restart-on-rotate] [--] <command> [args...]"
+	a, err := parseArgs(argv, []string{"env"}, []string{"no-redact", "restart-on-rotate"}, true)
 	if err != nil || len(a.rest) == 0 {
 		return w.usageError(usage)
 	}
 	if projectPath, err := w.findProject(); err == nil {
 		w.freshen(projectPath, a.options["env"])
 	}
-	_, resolved, err := w.resolve(a.options["env"])
+	projectPath, resolved, err := w.resolve(a.options["env"])
 	defer wipePairs(resolved.Pairs)
 	if err != nil {
 		return w.fail(err, "Configured secrets are unavailable.")
@@ -493,7 +493,8 @@ func (w Workspace) run(argv []string) int {
 		return 1
 	}
 	w.status().Info(fmt.Sprintf("Starting %s with %d variables from %s.", a.rest[0], len(resolved.Pairs), resolved.Environment))
-	return w.runChild(runner.Spec{Command: a.rest, Additions: resolved.Pairs, Inherited: w.environ()}, !a.flags["no-redact"])
+	watch := &rotationWatch{secrets: projectPath, environment: a.options["env"], restart: a.flags["restart-on-rotate"]}
+	return w.runWatching(runner.Spec{Command: a.rest, Additions: resolved.Pairs, Inherited: w.environ()}, !a.flags["no-redact"], watch)
 }
 
 // runChild runs spec attached to this terminal, masking the values it was
@@ -553,9 +554,9 @@ func sourceLabel(command project.Command, environment string) string {
 
 // runNamed runs a command defined under commands: in envrune.yml.
 func (w Workspace) runNamed(projectPath string, config project.Config, name string, argv []string) int {
-	a, err := parseArgs(argv, []string{"env"}, []string{"no-redact"}, true)
+	a, err := parseArgs(argv, []string{"env"}, []string{"no-redact", "restart-on-rotate"}, true)
 	if err != nil {
-		return w.usageError(name + " [--env <environment>] [--no-redact] [args...]")
+		return w.usageError(name + " [--env <environment>] [--no-redact] [--restart-on-rotate] [args...]")
 	}
 	command := config.Commands[name]
 	words, err := parseShellLine(command.Run)
@@ -578,7 +579,8 @@ func (w Workspace) runNamed(projectPath string, config project.Config, name stri
 		return 1
 	}
 	w.status().Info(fmt.Sprintf("Running %s with %d variables from %s.", name, len(resolved.Pairs), sourceLabel(command, resolved.Environment)))
-	return w.runChild(runner.Spec{Command: words, Additions: resolved.Pairs, Inherited: w.environ(), Dir: dir}, !a.flags["no-redact"])
+	watch := &rotationWatch{secrets: secrets, environment: environment, restart: a.flags["restart-on-rotate"]}
+	return w.runWatching(runner.Spec{Command: words, Additions: resolved.Pairs, Inherited: w.environ(), Dir: dir}, !a.flags["no-redact"], watch)
 }
 
 func (w Workspace) export(argv []string) int {

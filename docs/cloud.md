@@ -149,7 +149,11 @@ envrune cloud copy acme/shop/production/payments-key
 
 `pull` and `sync` download ciphertext, verify every signature, and keep an
 encrypted copy in your vault, so commands keep working offline with the last
-synced state. A server that serves an older version than one you have seen
+synced state. You rarely need to run them: `run`, named commands, and `up`
+ask the server whether anything changed before they start, and pull what
+did. A command that is already running says when a value it uses was
+replaced, and `envrune run --restart-on-rotate` restarts it with the new
+value by itself. A server that serves an older version than one you have seen
 is refused (`--allow-older` accepts it).
 
 ## Audit log
