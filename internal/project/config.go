@@ -88,7 +88,32 @@ type Config struct {
 	Commands     map[string]Command
 	Up           []string
 	Variables    []Variable // in the order envrune.yml lists them
+	// Environments is what each environment resolves: its own variables on
+	// top of the ones it inherits and under the user's personal override
+	// (docs/project-file.md).
 	Environments map[string]map[string]domain.Reference
+	// Extends maps an environment to the one it builds on.
+	Extends map[string]string
+	// Workspace is the folder, relative to this file, of the envrune.yml
+	// whose environments this one starts from.
+	Workspace string
+	// Files lists the variables that receive the path of a file holding the
+	// secret, instead of its value.
+	Files []string
+	// Render maps a variable to a template, relative to this file; the
+	// variable receives the path of the template filled in.
+	Render map[string]string
+	// Checks are commands that succeed while a secret still works.
+	Checks map[string]string
+
+	// shared is Environments without the personal override, and local the
+	// override, so the shared file can be written back without either what
+	// it inherits or what is one person's.
+	shared map[string]map[string]domain.Reference
+	local  map[string]map[string]domain.Reference
+	parent map[string]map[string]domain.Reference // what each environment inherits
+	// inheritedCloud says Cloud is the workspace root's, not this file's.
+	inheritedCloud bool
 }
 
 func Load(path string) (Config, error) {
@@ -103,7 +128,14 @@ func Load(path string) (Config, error) {
 	if len(node.Content) != 1 {
 		return Config{}, &ConfigError{Message: "expected one YAML document"}
 	}
-	return parseDocument(node.Content[0])
+	config, err := parseDocument(node.Content[0])
+	if err != nil {
+		return Config{}, err
+	}
+	if err := config.layer(path, true); err != nil {
+		return Config{}, err
+	}
+	return config, nil
 }
 
 func mappingPairs(node *yaml.Node, what string) ([][2]*yaml.Node, error) {
@@ -181,6 +213,39 @@ func parseDocument(root *yaml.Node) (Config, error) {
 				return Config{}, err
 			}
 			seenEnvironments = true
+		case "extends":
+			if out.Extends, err = parseStrings(v, "extends"); err != nil {
+				return Config{}, err
+			}
+		case "workspace":
+			if out.Workspace, err = stringValue(v, "workspace"); err != nil {
+				return Config{}, err
+			}
+			if strings.HasPrefix(out.Workspace, "/") || strings.HasPrefix(out.Workspace, `\`) || driveLetter.MatchString(out.Workspace) {
+				return Config{}, configError(v, "workspace must be a folder relative to envrune.yml, such as ..")
+			}
+		case "files":
+			if out.Files, err = parseVariableList(v, "files"); err != nil {
+				return Config{}, err
+			}
+		case "render":
+			if out.Render, err = parseStrings(v, "render"); err != nil {
+				return Config{}, err
+			}
+			for name := range out.Render {
+				if !variableName.MatchString(name) {
+					return Config{}, configError(v, "render: %q is not a valid variable name; use names like APP_CONFIG", name)
+				}
+			}
+		case "checks":
+			if out.Checks, err = parseStrings(v, "checks"); err != nil {
+				return Config{}, err
+			}
+			for name := range out.Checks {
+				if !commandName.MatchString(name) {
+					return Config{}, configError(v, "checks: %q is not a valid name; use lowercase letters, digits, - and _", name)
+				}
+			}
 		default:
 			return Config{}, configError(k, "unknown key %q", k.Value)
 		}
@@ -364,10 +429,16 @@ func WriteAtomic(path string, config Config) error {
 		Project      string                                 `yaml:"project"`
 		DefaultEnv   string                                 `yaml:"default_env,omitempty"`
 		Cloud        string                                 `yaml:"cloud,omitempty"`
+		Workspace    string                                 `yaml:"workspace,omitempty"`
 		Commands     map[string]any                         `yaml:"commands,omitempty"`
 		Up           []string                               `yaml:"up,omitempty"`
 		Environments map[string]map[string]domain.Reference `yaml:"environments"`
-	}{1, config.Project, config.DefaultEnv, config.Cloud, commands, config.Up, config.Environments})
+		Extends      map[string]string                      `yaml:"extends,omitempty"`
+		Files        []string                               `yaml:"files,omitempty"`
+		Render       map[string]string                      `yaml:"render,omitempty"`
+		Checks       map[string]string                      `yaml:"checks,omitempty"`
+	}{1, config.Project, config.DefaultEnv, config.ownCloud(), config.Workspace, commands, config.Up, config.declared(),
+		config.Extends, config.Files, config.Render, config.Checks})
 	if err != nil {
 		return ErrInvalidConfig
 	}

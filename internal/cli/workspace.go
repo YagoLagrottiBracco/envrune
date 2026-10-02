@@ -338,8 +338,8 @@ func (w Workspace) copyValue(argv []string) int {
 }
 
 func (w Workspace) link(argv []string) int {
-	const usage = "link <VAR> <reference> [--env <environment>]"
-	a, err := parseArgs(argv, []string{"env"}, nil, false)
+	const usage = "link <VAR> <reference> [--env <environment>] [--local]"
+	a, err := parseArgs(argv, []string{"env"}, []string{"local"}, false)
 	if err != nil || len(a.positional) != 2 {
 		return w.usageError(usage)
 	}
@@ -358,10 +358,16 @@ func (w Workspace) link(argv []string) int {
 			return w.fail(err, "Choose an environment with --env.")
 		}
 	}
-	if err := w.Session.Link(projectPath, environment, variable, ref); err != nil {
-		return w.fail(err, "The project link could not be created.")
+	if a.flags["local"] {
+		if code := w.linkLocal(projectPath, environment, variable, ref); code != 0 {
+			return code
+		}
+	} else {
+		if err := w.Session.Link(projectPath, environment, variable, ref); err != nil {
+			return w.fail(err, "The project link could not be created.")
+		}
+		w.status().Success(fmt.Sprintf("Linked %s to %s for environment %s.", variable, ref, environment))
 	}
-	w.status().Success(fmt.Sprintf("Linked %s to %s for environment %s.", variable, ref, environment))
 	exists, err := w.Session.HasIn(projectPath, environment, ref)
 	if err != nil || exists {
 		return 0
