@@ -31,6 +31,9 @@ type State struct {
 	// Versions is the newest version and epoch seen per secret, so the
 	// server cannot serve older ones unnoticed.
 	Versions map[string][2]uint64 `json:"versions,omitempty"`
+
+	// Use holds the notes of use this device has not reported yet.
+	Use []UseRecord `json:"use,omitempty"`
 }
 
 // OrgState is what this device learned about one organization.

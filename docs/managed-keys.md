@@ -116,10 +116,11 @@ most the server can know.
 The server sees fetches, not use: a consumer can run commands for weeks from
 one fetch. To record use, the CLI reports it:
 
-- when `run`, `up`, or `mcp` injects a value that is restricted to use
-  (consumer role), the CLI records the secret, the environment, and the time
-  in the vault, and sends the records to the server the next time it is
-  online (`secret.use` in the audit log, marked as reported by the device).
+- when `run`, a named command, `up`, or `mcp` injects a value that is
+  restricted to use (consumer role), the CLI notes the secrets, the
+  environment, and the time in the vault, and sends the notes to the server
+  the next time it is online (`secret.use` in the audit log, marked as
+  reported by the device). A device that stays offline keeps the last 500.
 - It records names and times. It does not record the command line, which
   may contain data the organization should not collect.
 

@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -93,5 +94,33 @@ func TestMachineTokenOpensASessionWithoutAVault(t *testing.T) {
 	env["ENVRUNE_CLOUD_SERVER"] = "http://example.com"
 	if _, err := session.Resolve(projectPath, ""); err == nil || !strings.Contains(err.Error(), "machine token") {
 		t.Fatalf("the token was not used: %v", err)
+	}
+}
+
+func TestRunningAsAConsumerNotesTheUse(t *testing.T) {
+	note := func(role string) string {
+		f := cloudFixture(t, role)
+		command := []string{"sh", "-c", "true"}
+		if runtime.GOOS == "windows" {
+			command = []string{"cmd", "/c", "exit 0"}
+		}
+		if code := f.run(append([]string{"run", "--"}, command...)...); code != 0 {
+			t.Fatalf("run = %d: %s", code, f.output())
+		}
+		raw, err := f.session.CloudState()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(raw)
+	}
+	state := note(cloudcrypto.RoleConsumer)
+	if !strings.Contains(state, `"use":[{"org":"acme","project":"shop","env":"production","names":["stripe-key"]`) {
+		t.Fatalf("a consumer's run was not noted: %s", state)
+	}
+	if strings.Contains(state, "sk_live_consumer_value") {
+		t.Fatal("the note holds a value")
+	}
+	if state := note(cloudcrypto.RoleMaintainer); strings.Contains(state, `"use"`) {
+		t.Fatalf("a maintainer's run was noted: %s", state)
 	}
 }

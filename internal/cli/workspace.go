@@ -492,6 +492,7 @@ func (w Workspace) run(argv []string) int {
 	if !w.maySkipMasking(resolved, a.flags["no-redact"]) {
 		return 1
 	}
+	noteUse(w.Session, projectPath, resolved)
 	w.status().Info(fmt.Sprintf("Starting %s with %d variables from %s.", a.rest[0], len(resolved.Pairs), resolved.Environment))
 	watch := &rotationWatch{secrets: projectPath, environment: a.options["env"], restart: a.flags["restart-on-rotate"]}
 	return w.runWatching(runner.Spec{Command: a.rest, Additions: resolved.Pairs, Inherited: w.environ()}, !a.flags["no-redact"], watch)
@@ -541,6 +542,7 @@ func (w Workspace) resolveCommand(name string, command project.Command, secrets,
 		w.status().Error(name + ": " + describe(err, "Configured secrets are unavailable."))
 		return app.Resolved{}, err
 	}
+	noteUse(w.Session, secrets, resolved)
 	return resolved, nil
 }
 

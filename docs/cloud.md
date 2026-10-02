@@ -247,6 +247,12 @@ to run an agent's own command line with them. **This prevents accidents, not a d
 consumer**: whoever runs a program with a value can read it on their own
 machine, for example by printing it from the program.
 
+Each command a consumer runs with cloud values is noted on their device,
+with the names of the secrets and the time, and reported to the audit log
+(`secret.use`) the next time the device is online. It tells you what the
+team uses and when. It is the device's own account, so it is not proof that
+a value was not used.
+
 ## Moving from a team file
 
 A project that shares secrets through `envrune.team.json`

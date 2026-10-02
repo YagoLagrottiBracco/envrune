@@ -158,6 +158,8 @@ func (c *Client) machineFetch(ctx context.Context, tokenID string, secret []byte
 	return &out, nil
 }
 
+func asAPIError(err error, target **APIError) bool { return errors.As(err, target) }
+
 func wipe(b []byte) {
 	for i := range b {
 		b[i] = 0

@@ -4,7 +4,7 @@
 -- member. Signatures are placeholders: the database does not check them;
 -- the API and every client do.
 begin;
-select plan(50);
+select plan(53);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'alice@example.com'),
@@ -183,6 +183,17 @@ select ok(jsonb_array_length(public.environment_status(:'env')->'fetches') >= 1,
 select throws_ok(format($$ select public.set_transition(%L, 'missing', now()) $$, :'env'), 'P0002', null, 'a transition needs an existing secret');
 select pg_temp.become('00000000-0000-0000-0000-00000000000e');
 select throws_ok(format($$ select public.environment_status(%L) $$, :'env'), '42501', null, 'a non-member cannot see who synced');
+
+-- Devices report use; the log marks it as their own account.
+select pg_temp.become('00000000-0000-0000-0000-00000000000c');
+select public.report_use(:'env', 'carol-laptop', jsonb_build_array(jsonb_build_object('names', jsonb_build_array('stripe-key'), 'at', now())));
+select throws_ok(format($$ select public.report_use(%L, 'someone-else', '[]'::jsonb) $$, :'env'), '42501', null, 'use is reported from an approved device of the caller');
+select pg_temp.become('00000000-0000-0000-0000-00000000000e');
+select throws_ok(format($$ select public.report_use(%L, 'x', '[]'::jsonb) $$, :'env'), '42501', null, 'a non-member cannot report use');
+reset role;
+select is((select detail->>'reported_by_device' from public.audit_log where org_id = :'org' and action = 'secret.use'), 'true',
+  'reported use is marked as the device''s account');
+set local role authenticated;
 
 -- The audit log is append-only and hash-chained.
 reset role;

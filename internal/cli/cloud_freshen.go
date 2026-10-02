@@ -53,3 +53,30 @@ func (w Workspace) freshen(projectPath, environment string) []cloud.Path {
 	}
 	return paths
 }
+
+// noteUse records, in the vault, that a command was given cloud values its
+// user may use but not see. The device reports the note when it is next
+// online; see docs/managed-keys.md. Names and the time only.
+func noteUse(store cloud.Store, projectPath string, resolved app.Resolved) {
+	if !resolved.Restricted {
+		return
+	}
+	config, err := project.Load(projectPath)
+	if err != nil || config.Cloud == "" {
+		return
+	}
+	names := map[cloud.Path][]string{}
+	for _, ref := range config.Environments[resolved.Environment] {
+		path, isCloud, err := cloud.ReferencePath(ref.String(), config.Cloud, resolved.Environment)
+		if !isCloud || err != nil {
+			continue
+		}
+		name := path.Name
+		path.Name = ""
+		names[path] = append(names[path], name)
+	}
+	service := &cloud.Service{Store: store}
+	for path, used := range names {
+		_ = service.RecordUse(path, used)
+	}
+}

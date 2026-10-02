@@ -23,7 +23,10 @@ All notable changes to EnvRune are listed here. The format follows
   starts it again with the new value. With EnvRune Cloud, `run`, named
   commands, and `up` also ask the server for version numbers before they
   start and pull what changed, so nobody has to run `cloud pull` after a
-  rotation.
+  rotation. `cloud status <env>` shows which devices and tokens already have
+  the current values, `cloud set --transition 24h` records how long the
+  previous value keeps working, and commands a consumer runs are noted and
+  reported to the audit log as `secret.use`.
 - **EnvRune Cloud** (optional): share secrets between the members of a team
   and with CI through a server that stores only ciphertext. There is no
   hosted service yet; run the server yourself (`docs/self-hosting.md`) and

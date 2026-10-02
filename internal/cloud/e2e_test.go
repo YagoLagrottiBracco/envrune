@@ -283,6 +283,11 @@ func TestEndToEnd(t *testing.T) {
 	if _, err := bob.EnvironmentStatus(ctx, env); err == nil {
 		t.Fatal("a consumer saw who synced")
 	}
+	// Bob's device notes a run and reports it the next time it is online.
+	ok(t, bob.RecordUse(env, []string{"stripe-key"}))
+	if n := must[int](t)(bob.ReportUse(ctx)); n != 1 {
+		t.Fatalf("reported %d uses", n)
+	}
 
 	// The offline limit is the admins' to set, and members' devices learn it.
 	if err := bob.SetOfflineDays(ctx, org, 30); err == nil {
@@ -302,7 +307,7 @@ func TestEndToEnd(t *testing.T) {
 		seen[entry.Action] = true
 	}
 	for _, action := range []string{"org.create", "member.consumer", "member.removed", "device.approve", "key.share", "secret.write",
-		"secret.reencrypt", "environment.fetch", "environment.rotate", "token.create", "token.revoke", "rotation.accepted", "org.offline_days", "secret.transition"} {
+		"secret.reencrypt", "environment.fetch", "environment.rotate", "token.create", "token.revoke", "rotation.accepted", "org.offline_days", "secret.transition", "secret.use"} {
 		if !seen[action] {
 			t.Errorf("the audit log has no %s", action)
 		}

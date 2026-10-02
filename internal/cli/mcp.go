@@ -307,6 +307,7 @@ func (s mcpServer) run(ctx context.Context, projectPath, secretsPath, environmen
 	if anyCommand && resolved.Restricted {
 		return nil, runResult{}, errors.New("this environment has cloud values that your role (consumer) may only use through the project's named commands; use run_command")
 	}
+	noteUse(session, secretsPath, resolved)
 	// Mask every value the user has, not only the ones this command gets.
 	all, err := session.Secrets(projectPath)
 	if err != nil {

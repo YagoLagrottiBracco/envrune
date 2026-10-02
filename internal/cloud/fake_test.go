@@ -149,6 +149,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 	route("GET /api/v1/orgs/{org}/audit", f.getAudit)
 	route("GET /api/v1/versions", f.getVersions)
 	route("GET /api/v1/environments/{env}/status", f.getStatus)
+	route("POST /api/v1/environments/{env}/use", f.postUse)
 	route("PUT /api/v1/environments/{env}/secrets/{name}/transition", f.putTransition)
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
@@ -884,6 +885,29 @@ func (f *fakeServer) putTransition(user string, r *http.Request) (any, int, erro
 		delete(f.transition, secretID(env, name))
 	} else {
 		f.transition[secretID(env, name)] = *b.Until
+	}
+	return nil, 204, nil
+}
+
+func (f *fakeServer) postUse(user string, r *http.Request) (any, int, error) {
+	env := r.PathValue("env")
+	b := decode[struct {
+		Device string `json:"device"`
+		Uses   []struct {
+			Names []string `json:"names"`
+			At    string   `json:"at"`
+		} `json:"uses"`
+	}](r)
+	e, p := f.envInfo(env)
+	if e == nil || !f.canUse(env, user) {
+		return fail(403, errForbidden)
+	}
+	if d := f.device(user, b.Device); d == nil || d.Signature == nil || d.RevokedAt != nil {
+		return fail(403, errForbidden)
+	}
+	for _, u := range b.Uses {
+		names, _ := json.Marshal(u.Names)
+		f.audit(p.org, user, "secret.use", p.slug+"/"+e.slug, `{"at": "`+u.At+`", "names": `+string(names)+`, "reported_by_device": true}`)
 	}
 	return nil, 204, nil
 }

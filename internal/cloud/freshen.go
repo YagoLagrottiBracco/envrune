@@ -55,6 +55,12 @@ func (s *Service) Freshen(ctx context.Context, paths []Path, check time.Duration
 	if err != nil || st.DeviceID == "" || !st.DeviceApproved {
 		return nil, nil
 	}
+	// The same moment online carries the notes of use kept meanwhile.
+	if len(st.Use) > 0 {
+		reportCtx, cancel := context.WithTimeout(ctx, check)
+		_, _ = s.ReportUse(reportCtx)
+		cancel()
+	}
 	var pull []Path
 	asked := map[string]Path{} // environment id → path
 	for _, path := range paths {
