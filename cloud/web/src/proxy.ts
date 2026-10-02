@@ -1,11 +1,28 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { publishableKey, supabaseUrl } from "@/lib/env";
+import { missing, publishableKey, supabaseUrl } from "@/lib/env";
 
 // Refreshes the panel's session cookie on each navigation, so server
 // components see a valid token. The API does not use cookies; the CLI sends
 // its own access token.
 export async function proxy(request: NextRequest) {
+  // A server deployed before its Supabase is set up explains what is
+  // missing, on one page, instead of failing on each one.
+  const setup = request.nextUrl.pathname === "/not-configured";
+  if (missing().length > 0) {
+    if (setup) {
+      return NextResponse.next({ request });
+    }
+    const url = request.nextUrl.clone();
+    url.pathname = "/not-configured";
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+  if (setup) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/";
+    return NextResponse.redirect(url);
+  }
   let response = NextResponse.next({ request });
   const supabase = createServerClient(supabaseUrl(), publishableKey(), {
     cookies: {

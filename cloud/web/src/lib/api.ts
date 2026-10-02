@@ -1,5 +1,6 @@
 import "server-only";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
+import { missing } from "./env";
 import { bearerClient } from "./supabase/server";
 
 // Helpers for the /api/v1 route handlers the CLI calls.
@@ -32,6 +33,9 @@ export function fromPostgres(error: PostgrestError): ApiError {
 /** Wraps a handler: turns ApiError and Postgres errors into JSON responses. */
 export function handle<C>(fn: (request: Request, context: C) => Promise<Response>) {
   return async (request: Request, context: C): Promise<Response> => {
+    if (missing().length > 0) {
+      return notConfigured();
+    }
     try {
       return await fn(request, context);
     } catch (error) {
@@ -42,6 +46,11 @@ export function handle<C>(fn: (request: Request, context: C) => Promise<Response
       return Response.json({ error: "the request failed" }, { status: 500 });
     }
   };
+}
+
+/** What a server answers before its Supabase address and keys are set. */
+export function notConfigured(): Response {
+  return Response.json({ error: "this EnvRune Cloud server is not configured yet; ask whoever runs it" }, { status: 503 });
 }
 
 /**

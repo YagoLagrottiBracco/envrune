@@ -14,6 +14,12 @@ function required(name: string): string {
   return value;
 }
 
+/** The variables every deployment sets, in the order the guides list them. */
+export const variables = ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "SUPABASE_SECRET_KEY"] as const;
+
+/** The variables that are not set yet. A server missing any shows how to set it up instead of failing. */
+export const missing = () => variables.filter((name) => !process.env[name]);
+
 export const supabaseUrl = () => required("NEXT_PUBLIC_SUPABASE_URL");
 export const publishableKey = () => required("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
 export const secretKey = () => required("SUPABASE_SECRET_KEY");

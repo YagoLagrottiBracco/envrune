@@ -97,7 +97,10 @@ docker run -d -p 127.0.0.1:3000:3000 --env-file cloud/.env envrune-cloud
 ```
 
 `GET /api/v1/health` answers `{"service":"envrune-cloud","api":1}` when the
-server is up; the image's health check uses it.
+server is up and configured; the image's health check uses it. A server
+started without one of the three variables keeps running: its pages say
+which variables are missing, by name, and the API answers 503, so
+`envrune login` reports that the server is not configured yet.
 
 ## 4. HTTPS
 

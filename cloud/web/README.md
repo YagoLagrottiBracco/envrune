@@ -16,14 +16,17 @@ npm install
 npm run dev
 ```
 
-Put the local Supabase's address and keys in `.env.local`, which Git
-ignores:
+Copy `.env.example` to `.env.local`, which Git ignores, and put the local
+Supabase's address and keys in it:
 
 ```sh
 NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<publishable key>
 SUPABASE_SECRET_KEY=<secret key>
 ```
+
+Without them the server still starts: every page leads to one that names
+the missing variables, and the API answers 503.
 
 These are read when a request needs them, not inlined by the build
 (`src/lib/env.ts`), so one build serves any deployment.
@@ -39,5 +42,5 @@ npm test          # signing, against vectors shared with the Go client
 ## Deploy
 
 On Vercel, set the project's root directory to `cloud/web` and the three
-variables above. Anywhere else, use the Docker image:
+variables above; it can be deployed before they are set. Anywhere else, use the Docker image:
 [docs/self-hosting.md](../../docs/self-hosting.md).
