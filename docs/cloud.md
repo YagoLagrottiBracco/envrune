@@ -124,7 +124,7 @@ envrune cloud rotation acme          # what is still waiting; --all shows everyt
 Each secret waits until one of these happens:
 
 ```sh
-envrune cloud set acme/shop/production/stripe-key              # the new value from the provider
+envrune cloud set acme/shop/production/payments-key              # the new value from the provider
 envrune cloud set acme/shop/production/session-key --generate  # a random value, for ones you make up
 envrune cloud rotation accept acme/shop/production/sentry-dsn  # it stays as it is, on the record
 ```
@@ -141,10 +141,10 @@ left the server, not what someone did with it.
 ## Secrets
 
 ```sh
-envrune cloud set acme/shop/production/stripe-key   # asked twice, never echoed
+envrune cloud set acme/shop/production/payments-key   # asked twice, never echoed
 envrune cloud set acme/shop/production/session-key --generate   # a random value, never shown
 envrune cloud pull acme/shop/production             # or: envrune cloud sync
-envrune cloud copy acme/shop/production/stripe-key
+envrune cloud copy acme/shop/production/payments-key
 ```
 
 `pull` and `sync` download ciphertext, verify every signature, and keep an
@@ -235,7 +235,7 @@ envrune cloud import-team acme/shop/production --relink   # and points envrune.y
 ```
 
 Each team reference becomes a cloud secret of the same name, with dots
-turned into dashes (`team.stripe.key` becomes `stripe-key`). Running it again
+turned into dashes (`team.payments.key` becomes `payments-key`). Running it again
 stores only what changed. `--relink` rewrites the variables of `envrune.yml`
 that read those references, adds `cloud: acme/shop` if the file has no link,
 and keeps your comments.

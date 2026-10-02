@@ -1,13 +1,14 @@
 # Keys managed by their owner: design
 
-Status: **proposal, for review. Nothing here is implemented.** It builds on
-EnvRune Cloud ([cloud-crypto.md](cloud-crypto.md)) and describes Phase 5 of
-the roadmap: the owner of a key replaces it in one place, the team picks up
-the new value without doing anything, and people who only need to use a key
-do so without seeing it.
+Status: **direction approved; being implemented in the order under
+[Order](#order).** It builds on EnvRune Cloud
+([cloud-crypto.md](cloud-crypto.md)): the owner of a key replaces it in one
+place, the team picks up the new value without doing anything, and people
+who only need to use a key do so without seeing it.
 
-The decisions that are the owner's to make are collected under
-[Decisions to approve](#decisions-to-approve).
+One rule shapes all of it: **EnvRune knows no service.** Nothing here is
+built for a particular provider or API. A secret is a secret; what the owner
+chooses is how far it may travel.
 
 ## What exists today
 
@@ -25,21 +26,25 @@ The decisions that are the owner's to make are collected under
 1. **One place to rotate.** `envrune cloud set` (or `--generate`) is the
    whole rotation: every device and every running process moves to the new
    value on its own, and the owner sees who has.
-2. **Three levels of "use without seeing"**, each stated with what it does
+2. **Two levels of "use without seeing"**, each stated with what it does
    and does not protect:
 
    | Level | The value | Protects against |
    | --- | --- | --- |
-   | 1. Consumer role (exists) | reaches the developer's machine, never the screen | accidents: logs, screenshots, pasting |
-   | 2. Injection proxy | never reaches the developer's machine | extraction by the developer |
-   | 3. Temporary credentials | is never the master key; what reaches the machine expires | extraction, and a leak after the developer left |
+   | Consumer role (exists) | reaches the developer's machine, never the screen | accidents: logs, screenshots, pasting |
+   | Sensitive secret | never reaches the developer's machine | extraction by the developer |
 
-3. **Zero-knowledge stays the default.** Levels 2 and 3 need the server to
-   hold a credential it can use. That is a deliberate exception, chosen per
+3. **Zero-knowledge stays the default.** A sensitive secret needs the server
+   to hold a value it can use. That is a deliberate exception, chosen per
    secret by an owner, and visible everywhere the secret is listed.
 
-Non-goals: protecting a value from the upstream service or from a server
-the owner chose to trust with it; hiding which secrets exist.
+Before either level, the simplest protection is not to hand out the key at
+all: give people who do not need production a scope that covers only the
+development environment, with test credentials there. Scopes already do
+this. A sensitive secret is for someone who must run against the real thing.
+
+Non-goals: protecting a value from the service it is sent to, or from a
+server the owner chose to trust with it; hiding which secrets exist.
 
 ## 1. Rotation that distributes itself
 
@@ -50,7 +55,7 @@ about, only the epoch and the version number of each secret: no ciphertext,
 so it costs one small query and is not a fetch in the audit log.
 
 ```text
-GET /api/v1/versions?env=<id>&env=<id>   →  { "<env id>": { "epoch": 3, "secrets": { "stripe-key": 7 } } }
+GET /api/v1/versions?env=<id>&env=<id>   →  { "<env id>": { "epoch": 3, "secrets": { "payments-key": 7 } } }
 ```
 
 - `envrune run`, `up`, and named commands ask before starting, with a short
@@ -117,36 +122,84 @@ This is **the device's own account**: a consumer who modifies the CLI can
 skip it. The documentation says so. It answers "which secrets does this team
 actually use, and when", not "prove that this person did not use it".
 
-## 3. Injection proxy
+## 3. Sensitive secrets
 
-For an HTTP API key marked `proxied`, the developer's program never receives
-the key. It receives a URL and a short-lived token:
+### Why encryption alone cannot do this
 
-```text
-program ──▶ https://cloud.example.com/proxy/…  (Authorization: Bearer <grant>)
-                │  checks the grant, replaces the header with the real key
-                ▼
-            https://api.stripe.com/…           (Authorization: Bearer sk_live_…)
+For a program to use a value, the value must be readable where the program
+runs. Whoever controls that machine can read what the program reads, however
+the value arrived and however briefly it is decrypted. So "use without being
+able to see" has one shape: the value stays somewhere else, and something
+there uses it on the program's behalf.
+
+### How it works
+
+The owner marks a secret sensitive and says which hosts it may be sent to:
+
+```sh
+envrune cloud set acme/shop/production/payments-key --sensitive --allow-host api.example.com
 ```
 
-### Where the proxy runs
+From then on, a developer's program receives a **placeholder** in place of
+the value, such as `envrune_sealed_x7k2…`, and its requests to the allowed
+hosts take a detour:
 
-Two modes were considered.
+```text
+program ── request with the placeholder ──▶ envrune (same machine)
+                                                │  forwards it, as this member
+                                                ▼
+                                       EnvRune Cloud server
+                                                │  puts the real value where the
+                                                │  placeholder is; only for an allowed host
+                                                ▼
+                                          api.example.com
+```
 
-- **Local** (the `envrune` process on the developer's machine holds the key
-  and forwards requests): the key is still on the machine, in a process the
-  developer controls. It keeps the key out of the program's environment and
-  logs, which the consumer role and masking already do. It does not reach
-  level 2, so it is **not proposed**.
-- **Cloud** (the EnvRune Cloud server holds the key and forwards requests):
-  the key never reaches the developer. This is the proposal.
+The server does not know what the secret is for. It replaces one piece of
+text with another wherever it appears in the request:
 
-### What it costs: the server can read a proxied secret
+- in header values, including inside `Authorization: Basic`, which it
+  decodes, replaces, and encodes again;
+- in the URL's query;
+- in the body, when it is text (JSON, form data) within a size limit.
 
-A proxied secret is encrypted to the **proxy identity**, an age key pair
+In the response it does the reverse, so a service that echoes the value
+back shows the program the placeholder again.
+
+A sensitive secret may also be a **client certificate** with its private
+key. It has no placeholder: the server presents it to the allowed hosts, for
+services that identify callers by certificate.
+
+That is the whole mechanism, and it is the same for every secret. It covers
+any service where the secret travels in an HTTPS request, which is how API
+keys, tokens, and client credentials are used.
+
+### How the program's requests reach envrune
+
+`envrune run` starts a small proxy on the loopback interface for the
+lifetime of the command and points the program at it with the standard
+variables (`HTTPS_PROXY`, `HTTP_PROXY`). Requests to hosts that no sensitive
+secret allows pass straight through, untouched and unread. Requests to an
+allowed host are read so they can be forwarded.
+
+Reading an HTTPS request means ending the program's TLS connection at
+envrune. For that, each run creates a certificate authority that exists
+only in memory and only for that run, and tells the program to trust it
+through the variables runtimes read for extra authorities
+(`SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`,
+`CURL_CA_BUNDLE`). Nothing is installed on the machine. What envrune sees
+this way is what the program sent: the placeholder, never the value.
+
+A program that ignores those variables cannot be redirected this way. For
+it, a second variable can hold an address to use as the service's base
+address (`cloud.<name>.proxy`), which leads to the same place.
+
+### What it costs: the server can read a sensitive secret
+
+A sensitive secret is encrypted to the **proxy identity**, an age key pair
 whose private half is configuration of the server
 (`ENVRUNE_PROXY_IDENTITY`). The server decrypts the value in memory for each
-request. Therefore, for proxied secrets only:
+request. Therefore, for sensitive secrets only:
 
 - a compromised server, or whoever runs it, can read the value;
 - a copy of the database alone still cannot: the proxy identity is not in
@@ -155,138 +208,77 @@ request. Therefore, for proxied secrets only:
 Everything else stays as in [cloud-crypto.md](cloud-crypto.md). To make the
 exception hard to create by accident:
 
-- only an owner or admin marks a secret `proxied`, with
-  `envrune cloud set <path> --proxied --upstream https://api.stripe.com`;
+- only an owner or admin marks a secret sensitive;
 - the CLI shows the proxy identity's fingerprint and what marking the secret
   means, and asks for confirmation; the device pins the fingerprint, so a
   server cannot swap in another identity later;
-- the panel, `cloud org show`, and `cloud pull` mark proxied secrets, and
+- the panel, `cloud org show`, and `cloud pull` mark sensitive secrets, and
   the audit log records the marking;
-- a proxied secret is **write-only for people**: no member's device receives
-  a key that decrypts it, whatever their role. Rotating it is setting a new
-  value. It is stored apart from the environment's other secrets, which stay
-  encrypted under the environment key the server never has.
+- a sensitive secret is **write-only for people**: no member's device
+  receives a key that decrypts it, whatever their role. Rotating it is
+  setting a new value. It is stored apart from the environment's other
+  secrets, which stay encrypted under the environment key the server never
+  has;
+- the allowed hosts are signed by the admin's device together with the
+  value, so the server cannot add a host of its own.
 
-### Grants
+### Limits the server enforces
 
-`envrune run` asks the server for a grant when a variable resolves to a
-proxied secret: a random token bound to the user, the device, the secret,
-and an expiry (1 hour by default). A running program cannot be handed a new
-token, so while the command runs `envrune` extends the same grant's expiry;
-it lapses within the hour after the command ends. The
-variable receives the grant instead of the key, and a second variable
-receives the proxy's address:
-
-```yaml
-environments:
-  development:
-    STRIPE_SECRET_KEY: cloud.stripe-key          # proxied: receives a grant
-    STRIPE_API_BASE: cloud.stripe-key.proxy      # receives https://cloud.example.com/proxy/…
-```
-
-The server stores a hash of each grant. A grant stops working when it
-expires, when its device is revoked, and when its user is removed or loses
-the scope. Asking for a grant, and the number of requests it served, go to
-the audit log.
-
-### What the proxy forwards
-
-- Only to the **upstream** recorded with the secret, which the admin's
-  device signs together with the value. A request cannot name another host,
-  so a grant cannot be used to send the key somewhere else.
-- It replaces the `Authorization` header and forwards method, path, query,
-  body, and the other headers; it removes hop-by-hop headers and cookies.
-  It does not follow redirects from the upstream, which could point
-  elsewhere with the key attached.
-- It streams bodies in both directions and limits size and duration.
-- It never logs bodies or the key. It logs the grant, the method, the path
-  without its query, the status, and the time.
-
-First targets: **Stripe** (its libraries accept another API address) and
-**any API that takes `Authorization: Bearer`**. APIs that sign requests with
-the key (AWS Signature V4) or put it in the URL are out of scope for the
-proxy; AWS is covered by level 3.
+- **Only allowed hosts, only HTTPS.** A request naming another host is
+  refused, so the detour cannot be used to send the value elsewhere. The
+  server does not follow redirects, which could point elsewhere with the
+  value attached.
+- **Only members who may use the environment**, through a grant bound to the
+  user, the device, and the secret, valid for an hour and extended while
+  the command runs. It ends when it expires, when the device is revoked,
+  and when the member is removed or loses the scope.
+- **Sizes and durations** are limited. A server on a platform that limits
+  request size or time inherits that limit; a self-hosted one sets its own.
+- **Logs** hold the member, the host, the method, the path without its
+  query, the status, and the time, never a body or the value. The owner
+  can see what was done with the secret, by whom.
 
 ### What it does not do
 
-A developer with a grant can call the upstream with the key's full power
-while the grant is valid: the proxy hides the key, it does not narrow what
-the key may do. Narrowing is level 3, or a restricted key at the provider.
+- **It hides the value; it does not narrow what the value can do.** A
+  member with access can make any request the service accepts while the
+  access lasts. If the service offers restricted or test credentials, use
+  them for people who do not need full power.
+- **It covers requests over HTTPS.** A secret that never travels in a
+  request cannot be hidden this way: a database password sent over the
+  database's own protocol, or a key the program uses itself to sign or
+  encrypt. Such secrets stay ordinary ones, with the consumer role's
+  limits.
+- **It is for people, not for production.** A deployed service gets its
+  values through a machine token, directly, with no detour.
 
-## 4. Temporary credentials
-
-Instead of the master credential, `envrune run` receives a credential made
-for that developer, limited in scope and time:
-
-| Provider | The server holds | It issues |
-| --- | --- | --- |
-| AWS | a role it may assume | STS credentials for that role, with a session policy and a duration (15 min to 12 h) |
-| PostgreSQL, MySQL | an admin connection string | a database user with a random password, the grants of a template role, and an expiry |
-| Stripe | a secret key | a restricted key with the permissions the owner chose, if Stripe's API allows creating one for the account; otherwise this provider is left out and the proxy is the answer for Stripe |
-
-The master credential is stored like a proxied secret: encrypted to the
-proxy identity, write-only for people, marked everywhere. The same exception
-to zero-knowledge applies, and the same confirmation.
-
-Providers implement one interface, so more can be added:
-
-```go
-type Issuer interface {
-    // Issue creates a credential for one user and returns the variables to
-    // inject and how to take it back.
-    Issue(ctx context.Context, master []byte, request Request) (Credential, error)
-    // Revoke takes back a credential that Issue returned, if the provider
-    // can; it is called at expiry and when the user loses access.
-    Revoke(ctx context.Context, master []byte, credential Credential) error
-}
-```
-
-- **Expiry and revocation.** The server records what it issued. A scheduled
-  job revokes what expired; removing a member or revoking a device revokes
-  what they hold at once. STS credentials cannot be revoked one by one: they
-  expire, and for a removed member the role gets a policy denying sessions
-  issued before that moment.
-- **What reaches the machine** is a real credential, so the consumer limits
-  apply to it (masked, not shown). If it leaks, it is limited and it
-  expires.
-- **Where issuing runs.** On the server, for the same reason as the proxy:
-  the developer's machine must not hold the master credential. Database
-  providers need the server to reach the database, which a database inside
-  a private network does not allow from Vercel; a self-hosted server inside
-  that network does.
-
-## What a compromised server can do, after this phase
+## What a compromised server can do, after this
 
 | Secrets | A compromised server can |
 | --- | --- |
 | Ordinary (the default) | what [cloud-crypto.md](cloud-crypto.md) says: read names and activity, refuse service; not read a value |
-| Proxied | also read the value, and call the upstream with it |
-| Masters of temporary credentials | also read the master, and issue credentials for itself |
+| Sensitive | also read the value, and send requests with it |
 
-It still cannot make a secret proxied by itself: marking is a signed write
-from an admin's device, and devices pin the proxy identity.
+It still cannot make a secret sensitive by itself, or widen where one may
+be sent: both are signed writes from an admin's device, and devices pin the
+proxy identity.
 
-## Decisions to approve
+## Order
 
-1. **The proxy runs on the server, and proxied secrets are readable by the
-   server.** This is the only way the key stays off the developer's machine.
-   The alternative is to not build level 2. Proposal: build it, per secret,
-   with the confirmation and the marking described above.
-2. **No local proxy mode.** It would not add protection over the consumer
-   role. Proposal: leave it out.
-3. **Polling, not push.** Proposal: metadata polling, 30 seconds while a
-   process runs with `--restart-on-rotate`, once before each start
-   otherwise.
-4. **Use is reported by the device.** Proposal: yes, names and times only,
-   documented as the device's own account.
-5. **The proxy identity is one key per server**, set by whoever runs it.
-   Rotating it means setting every proxied secret again. Proposal: accept
-   that for now; per-organization identities can come later.
-6. **Order and scope.** Proposal: (a) rotation that distributes itself and
-   the record of use, which need no exception to zero-knowledge; (b) the
-   proxy, for Stripe and Bearer APIs; (c) temporary credentials, starting
-   with AWS STS and PostgreSQL, then MySQL, and Stripe only if its API
-   allows it. Each is released on its own.
-7. **The sentence** "the developer uses the key without needing to see it;
-   and, for critical keys, without being able to see it" goes into the
-   documentation only after (b) and (c) exist, as the roadmap says.
+1. **Rotation that distributes itself**, and the record of use. These need
+   no exception to zero-knowledge.
+2. **Sensitive secrets**: marking and storage, the server's forwarding, the
+   loopback proxy in `run`, then client certificates.
+
+Decided along the way:
+
+- Devices poll for new versions; no push. One route works the same on a
+  hosted and a self-hosted server.
+- Use is reported by the device, names and times only, and documented as
+  the device's own account.
+- The detour runs on the server. A proxy holding the value on the
+  developer's own machine would protect nothing the consumer role does not.
+- The proxy identity is one key per server. Rotating it means setting every
+  sensitive secret again; per-organization identities can come later.
+- No per-service logic, and no credentials issued by providers on the
+  owner's behalf: both would tie EnvRune to particular services.
