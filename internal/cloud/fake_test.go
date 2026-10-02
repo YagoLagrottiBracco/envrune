@@ -80,6 +80,7 @@ type fakeOrg struct {
 	id, slug, name string
 	roots          []accountKeyJSON
 	offlineDays    *int
+	policy         []PolicyRule
 }
 
 type fakeProject struct{ id, org, slug, name string }
@@ -158,6 +159,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 	route("POST /api/v1/orgs", f.postOrg)
 	route("GET /api/v1/orgs/{org}", f.getOrg)
 	route("PATCH /api/v1/orgs/{org}", f.patchOrg)
+	route("PUT /api/v1/orgs/{org}/policy", f.putPolicy)
 	route("POST /api/v1/orgs/{org}/members", f.postMember)
 	route("POST /api/v1/orgs/{org}/projects", f.postProject)
 	route("POST /api/v1/orgs/{org}/projects/{project}/environments", f.postEnvironment)
@@ -226,13 +228,44 @@ func (f *fakeServer) envInfo(id string) (*fakeEnv, *fakeProject) {
 func (f *fakeServer) canUse(env, user string) bool {
 	e, p := f.envInfo(env)
 	m := f.role(p.org, user)
-	return e != nil && slices.Contains([]string{"owner", "admin", "maintainer", "consumer"}, m.Role) && cloudcrypto.Allows(m.Scope, p.slug, e.slug)
+	return e != nil && slices.Contains([]string{"owner", "admin", "maintainer", "consumer"}, m.Role) && cloudcrypto.Allows(m.Scope, p.slug, e.slug) &&
+		!f.policyDenies(p.org, m.Role, p.slug, e.slug)
 }
 
 func (f *fakeServer) canAdminister(env, user string) bool {
 	e, p := f.envInfo(env)
 	m := f.role(p.org, user)
-	return e != nil && slices.Contains([]string{"owner", "admin", "maintainer"}, m.Role) && cloudcrypto.Allows(m.Scope, p.slug, e.slug)
+	return e != nil && slices.Contains([]string{"owner", "admin", "maintainer"}, m.Role) && cloudcrypto.Allows(m.Scope, p.slug, e.slug) &&
+		!f.policyDenies(p.org, m.Role, p.slug, e.slug)
+}
+
+// policyDenies applies the organization's rules, which never touch owners.
+func (f *fakeServer) policyDenies(org, role, project, env string) bool {
+	if role == "owner" {
+		return false
+	}
+	for _, o := range f.orgs {
+		if o.id == org {
+			return slices.ContainsFunc(o.policy, func(r PolicyRule) bool { return r.matches(project, env) && slices.Contains(r.Deny, role) })
+		}
+	}
+	return false
+}
+
+func (f *fakeServer) putPolicy(user string, r *http.Request) (any, int, error) {
+	o := f.orgBySlug(r.PathValue("org"), user)
+	b := decode[struct {
+		Rules []PolicyRule `json:"rules"`
+	}](r)
+	if o == nil || f.role(o.id, user).Role != "owner" {
+		return fail(403, errForbidden)
+	}
+	if err := CheckPolicy(b.Rules); err != nil {
+		return fail(400, err)
+	}
+	o.policy = b.Rules
+	f.audit(o.id, user, "policy.set", "", `{}`)
+	return nil, 204, nil
 }
 
 func (f *fakeServer) isAdmin(org, user string) bool {
@@ -397,7 +430,7 @@ func (f *fakeServer) getOrg(user string, r *http.Request) (any, int, error) {
 	if o == nil {
 		return fail(404, errNotFound)
 	}
-	snap := Snapshot{ID: o.id, Slug: o.slug, Name: o.name, Roots: o.roots, OfflineDays: o.offlineDays}
+	snap := Snapshot{ID: o.id, Slug: o.slug, Name: o.name, Roots: o.roots, OfflineDays: o.offlineDays, Policy: o.policy}
 	for _, c := range f.certs {
 		if c.OrgID == o.id {
 			snap.Certificates = append(snap.Certificates, c)

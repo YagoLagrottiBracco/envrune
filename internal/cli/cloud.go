@@ -47,6 +47,7 @@ const cloudUsage = `cloud <command>
   token create <org> --scope s[,s] [--name n] [--expires 90d]
   token revoke <id>
   import-team <org/project/env> [--relink] Move envrune.team.json's values to the cloud
+  policy show <org> | set <org> <file> | clear <org>   Rules about who may fetch what
   emergency <org/project>                  Take a compromised project's keys from everyone
   proxy keygen                             A proxy identity, for whoever runs a server
   audit export <org> [--output file]       Download the audit log and verify it
@@ -177,6 +178,8 @@ func (w Workspace) cloud(argv []string) int {
 		return w.cloudProxy(rest)
 	case "emergency":
 		return w.cloudEmergency(rest)
+	case "policy":
+		return w.cloudPolicy(rest)
 	}
 	return w.usageError(cloudUsage)
 }

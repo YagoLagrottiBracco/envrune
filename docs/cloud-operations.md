@@ -74,8 +74,15 @@ secrets. Rules never deny machine tokens, which have scopes of their own,
 and never grant anything: they only take away.
 
 `envrune cloud policy set <org> envrune.policy.yml` applies them (owners
-only), `cloud policy show <org>` prints them, and the audit log records each
-change. `doctor` says when an environment of the project is denied to you.
+only), `cloud policy show <org>` prints them for any member, and the audit
+log records each change. A member a rule denies is told so, with the rule's
+reason, when they try to pull the environment.
+
+Owners cannot be denied: someone must be able to write an environment's
+values and start its keys. A rule takes effect on the server at once. The
+keys a denied member's device already holds are replaced when the
+environment gets a new one, which no longer includes them; lifting a rule
+gives nothing back until an administrator shares the keys again.
 
 The server enforces rules; they are not signed. A compromised server could
 ignore them, as it could refuse service. They guard against mistakes in

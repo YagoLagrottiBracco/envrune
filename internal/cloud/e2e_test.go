@@ -365,6 +365,20 @@ func TestEndToEnd(t *testing.T) {
 	}
 	ok(t, alice.SetOfflineDays(ctx, org, 0))
 
+	// Rules: consumers are denied production, whatever their scope.
+	ok(t, alice.SetPolicy(ctx, org, []PolicyRule{{Environments: "*/production", Deny: []string{cloudcrypto.RoleConsumer}}}))
+	if err := bob.SetPolicy(ctx, org, nil); err == nil {
+		t.Fatal("a consumer changed the rules")
+	}
+	if _, err := bob.Pull(ctx, env, false); err == nil {
+		t.Fatal("a consumer fetched an environment the rules deny")
+	}
+	if rules := must[[]PolicyRule](t)(bob.Policy(ctx, org)); len(rules) != 1 {
+		t.Fatalf("bob sees the rules %+v", rules)
+	}
+	ok(t, alice.SetPolicy(ctx, org, nil))
+	must[[]SecretInfo](t)(bob.Pull(ctx, env, false))
+
 	// An emergency: alice takes the project's keys from everyone, bob has
 	// none until she shares the new ones.
 	emergency := must[*Emergency](t)(alice.Emergency(ctx, org, "shop"))
@@ -390,7 +404,7 @@ func TestEndToEnd(t *testing.T) {
 		seen[entry.Action] = true
 	}
 	for _, action := range []string{"org.create", "member.consumer", "member.removed", "device.approve", "key.share", "secret.write",
-		"secret.reencrypt", "environment.fetch", "environment.rotate", "token.create", "token.revoke", "rotation.accepted", "org.offline_days", "secret.transition", "secret.use", "secret.sensitive", "secret.forward", "device.revoke", "project.emergency"} {
+		"secret.reencrypt", "environment.fetch", "environment.rotate", "token.create", "token.revoke", "rotation.accepted", "org.offline_days", "secret.transition", "secret.use", "secret.sensitive", "secret.forward", "device.revoke", "project.emergency", "policy.set"} {
 		if !seen[action] {
 			t.Errorf("the audit log has no %s", action)
 		}

@@ -131,6 +131,7 @@ type Snapshot struct {
 	Tokens       []tokenJSON      `json:"tokens"`
 	Rotation     []rotationJSON   `json:"rotation"`
 	Sensitive    []sensitiveJSON  `json:"sensitive"`
+	Policy       []PolicyRule     `json:"policy"`
 }
 
 // rotationJSON is a guided rotation: the secrets someone who left could read.

@@ -4,7 +4,7 @@
 -- member. Signatures are placeholders: the database does not check them;
 -- the API and every client do.
 begin;
-select plan(69);
+select plan(74);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'alice@example.com'),
@@ -236,6 +236,22 @@ select is((select count(*)::int from public.rotation_tasks where org_id = :'org'
   'revoking a device opens a rotation for what it fetched');
 select is((select count(*)::int from public.wrapped_keys where recipient_id = 'carol-laptop'), 0, 'a revoked device keeps no wrapped keys');
 set local role authenticated;
+
+-- Rules deny roles an environment, whatever their scope; not owners.
+select pg_temp.become('00000000-0000-0000-0000-00000000000b');
+select throws_ok(format($$ select public.set_policy(%L, '[{"environments": "*/production", "deny": ["consumer"]}]') $$, :'org'), '42501', null,
+  'an admin cannot set the rules');
+select pg_temp.become('00000000-0000-0000-0000-00000000000a');
+select throws_ok(format($$ select public.set_policy(%L, '[{"environments": "*/production", "deny": ["owner"]}]') $$, :'org'), '22023', null,
+  'a rule cannot deny owners');
+select public.set_policy(:'org', '[{"environments": "*/production", "deny": ["admin", "maintainer"]}]');
+select pg_temp.become('00000000-0000-0000-0000-00000000000b');
+select throws_ok(format($$ select public.fetch_environment(%L, 'bob-laptop') $$, :'env'), '42501', null, 'a role the rules deny cannot fetch');
+select throws_ok(format($$ select public.put_secret_version(%L, 'other', 1, 2, decode(repeat('00', 24), 'hex'), 'z', 'bob-laptop', pg_temp.sig()) $$, :'env'),
+  '42501', null, 'nor write');
+select pg_temp.become('00000000-0000-0000-0000-00000000000a');
+select lives_ok(format($$ select public.fetch_environment(%L, 'alice-laptop') $$, :'env'), 'an owner is never denied');
+select public.set_policy(:'org', '[]');
 
 -- An emergency: only an owner, and everyone else loses the project's keys.
 select pg_temp.become('00000000-0000-0000-0000-00000000000b');

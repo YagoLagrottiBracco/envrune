@@ -118,6 +118,9 @@ func (s *Service) Pull(ctx context.Context, path Path, allowOlder bool) ([]Secre
 	if err != nil {
 		return nil, err
 	}
+	if me, err := v.member(st.UserID); err == nil && v.denied(me, p.Slug, e.Slug) {
+		return nil, fmt.Errorf("%s's rules do not let a %s fetch %s/%s", path.Org, me.Role, p.Slug, e.Slug)
+	}
 	o, err := s.fetch(ctx, c, st, device, v, p, e, allowOlder)
 	if err != nil {
 		return nil, err
@@ -152,7 +155,7 @@ func (s *Service) Sync(ctx context.Context) ([]Path, error) {
 		}
 		for _, p := range v.snap.Projects {
 			for _, e := range p.Environments {
-				if !me.CanUse(p.Slug, e.Slug) {
+				if !me.CanUse(p.Slug, e.Slug) || v.denied(me, p.Slug, e.Slug) {
 					continue
 				}
 				o, err := s.fetch(ctx, c, st, device, v, &p, &e, false)

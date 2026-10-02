@@ -41,7 +41,7 @@ export const PATCH = handle(async (request, ctx: RouteContext<"/api/v1/orgs/[org
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function snapshot(client: SupabaseClient, org: { id: string; slug: string; name: string; offline_days: number | null }): Promise<any> {
-  const [roots, certs, members, projects, tokens, tasks, sensitive] = await Promise.all([
+  const [roots, certs, members, projects, tokens, tasks, sensitive, policies] = await Promise.all([
     rows(client.from("org_roots").select("user_id, account_key").eq("org_id", org.id)),
     rows(client.from("membership_certs").select("*").eq("org_id", org.id).order("id")),
     rows(client.from("org_members").select("user_id, role, scope").eq("org_id", org.id)),
@@ -49,6 +49,7 @@ async function snapshot(client: SupabaseClient, org: { id: string; slug: string;
     rows(client.from("machine_tokens").select("*").eq("org_id", org.id)),
     rows(client.from("rotation_tasks").select("id, reason, subject_user_id, subject_token, subject_device, created_at, rotation_items(secret_id, status)").eq("org_id", org.id)),
     rpc<unknown[]>(client, "sensitive_in_org", { p_org: org.id }),
+    rows(client.from("org_policies").select("rules").eq("org_id", org.id)),
   ]);
   const memberIds = members.map((m) => m.user_id);
   const [profiles, devices] = await Promise.all([
@@ -71,5 +72,7 @@ async function snapshot(client: SupabaseClient, org: { id: string; slug: string;
     // Sensitive secrets: where each may be sent and who marked it. Their
     // ciphertext is never sent to a member.
     sensitive,
+    // Which roles the organization denies which environments.
+    policy: (policies[0]?.rules as unknown[]) ?? [],
   };
 }

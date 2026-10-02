@@ -227,6 +227,30 @@ What to know before using it:
 The design, and what a compromised server could do with sensitive secrets,
 is in [managed-keys.md](managed-keys.md).
 
+## Rules about who may fetch
+
+Scopes say what each member may use. Rules say what a role may never fetch,
+whoever grants what:
+
+```yaml
+# envrune.policy.yml
+rules:
+  - environments: "*/production"
+    deny: [consumer]
+  - environments: "shop/production"
+    deny: [admin, maintainer, consumer]   # people never fetch it; machine tokens do
+```
+
+```sh
+envrune cloud policy set acme envrune.policy.yml   # owners only
+envrune cloud policy show acme
+envrune cloud policy clear acme
+```
+
+The server refuses a denied role the environment's values, its keys, and
+the use of its sensitive secrets. Rules never apply to owners, who keep the
+environment manageable, or to machine tokens, which have their own scopes.
+
 ## When something goes wrong
 
 **A device is lost or stolen.** Revoke it from another device, or from the

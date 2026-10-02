@@ -130,9 +130,15 @@ func (v *view) recipients(p *projectJSON, e *environmentJSON) []recipient {
 			continue
 		}
 		cert := d.certificate()
-		if v.trust.VerifyRecipient(v.certs, cert, p.Slug, e.Slug) == nil {
-			out = append(out, recipient{cert: cert})
+		if v.trust.VerifyRecipient(v.certs, cert, p.Slug, e.Slug) != nil {
+			continue
 		}
+		// A member the organization's rules deny this environment gets no
+		// key for it, whatever their scope.
+		if member, err := v.trust.Verify(v.certs, cert.UserID); err == nil && v.denied(member, p.Slug, e.Slug) {
+			continue
+		}
+		out = append(out, recipient{cert: cert})
 	}
 	for _, t := range v.snap.Tokens {
 		expires, err := time.Parse(time.RFC3339, t.ExpiresAt)
