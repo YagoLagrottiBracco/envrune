@@ -227,6 +227,36 @@ What to know before using it:
 The design, and what a compromised server could do with sensitive secrets,
 is in [managed-keys.md](managed-keys.md).
 
+## When something goes wrong
+
+**A device is lost or stolen.** Revoke it from another device, or from the
+panel under "Your devices":
+
+```sh
+envrune cloud device list
+envrune cloud device revoke <id>
+```
+
+The server stops serving it at once. The command starts a new key for the
+environments that device held one for, and `envrune cloud rotation acme`
+lists the values it had fetched, which whoever has it may know.
+
+**A project may be compromised**, and you do not know how far:
+
+```sh
+envrune cloud emergency acme/shop
+```
+
+Only an owner can, after typing the project's name. Every machine token
+that reaches the project is revoked, and every device but yours loses its
+keys for it, so nothing written from now on can be read by anyone else.
+Every value of the project is listed to replace. Nobody is removed: review
+the members, then give the keys back with `envrune cloud share acme` and
+create new tokens for CI.
+
+What each of these does at once on the server, and what your CLI finishes,
+is in [cloud-operations.md](cloud-operations.md).
+
 ## Audit log
 
 The server records every fetch, write, rotation, membership change, device

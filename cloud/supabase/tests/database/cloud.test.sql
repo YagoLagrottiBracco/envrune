@@ -4,7 +4,7 @@
 -- member. Signatures are placeholders: the database does not check them;
 -- the API and every client do.
 begin;
-select plan(66);
+select plan(69);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'alice@example.com'),
@@ -235,6 +235,20 @@ reset role;
 select is((select count(*)::int from public.rotation_tasks where org_id = :'org' and subject_device = 'carol-laptop'), 1,
   'revoking a device opens a rotation for what it fetched');
 select is((select count(*)::int from public.wrapped_keys where recipient_id = 'carol-laptop'), 0, 'a revoked device keeps no wrapped keys');
+set local role authenticated;
+
+-- An emergency: only an owner, and everyone else loses the project's keys.
+select pg_temp.become('00000000-0000-0000-0000-00000000000b');
+select throws_ok(format($$ select public.emergency(%L, 'bob-laptop') $$, :'project'), '42501', null, 'an admin cannot declare an emergency');
+select pg_temp.become('00000000-0000-0000-0000-00000000000a');
+select public.emergency(:'project', 'alice-laptop');
+reset role;
+select is((select count(*)::int from public.wrapped_keys w join public.environments e on e.id = w.environment_id
+  where e.project_id = :'project' and not (w.recipient_user_id = '00000000-0000-0000-0000-00000000000a' and w.recipient_id in ('alice-laptop', 'recovery'))), 0,
+  'an emergency leaves keys only with the owner who declared it');
+select is((select count(*)::int from public.rotation_items i join public.rotation_tasks t on t.id = i.task_id where t.reason = 'emergency' and t.org_id = :'org'),
+  (select count(*)::int from public.secrets s join public.environments e on e.id = s.environment_id where e.project_id = :'project'),
+  'an emergency lists every secret of the project');
 set local role authenticated;
 
 -- The audit log is append-only and hash-chained.

@@ -162,6 +162,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 	route("POST /api/v1/orgs/{org}/projects", f.postProject)
 	route("POST /api/v1/orgs/{org}/projects/{project}/environments", f.postEnvironment)
 	route("POST /api/v1/orgs/{org}/tokens", f.postToken)
+	route("POST /api/v1/orgs/{org}/projects/{project}/emergency", f.postEmergency)
 	route("DELETE /api/v1/tokens/{id}", f.deleteToken)
 	route("GET /api/v1/environments/{env}", f.getEnvironment)
 	route("PUT /api/v1/environments/{env}/keys", f.putKeys)
@@ -793,6 +794,56 @@ func (f *fakeServer) machineEnvironment(_ string, r *http.Request) (any, int, er
 		}
 	}
 	return fail(404, errNotFound)
+}
+
+// postEmergency takes a project's keys away from everyone but the owner's
+// device and recovery recipient, revokes the tokens that reach it, and lists
+// every secret of the project for rotation.
+func (f *fakeServer) postEmergency(user string, r *http.Request) (any, int, error) {
+	o := f.orgBySlug(r.PathValue("org"), user)
+	b := decode[struct{ Device string }](r)
+	if o == nil || f.role(o.id, user).Role != "owner" {
+		return fail(403, errForbidden)
+	}
+	var project *fakeProject
+	for _, p := range f.projects {
+		if p.org == o.id && p.slug == r.PathValue("project") {
+			project = p
+		}
+	}
+	if d := f.device(user, b.Device); project == nil || d == nil || d.Signature == nil || d.RevokedAt != nil {
+		return fail(404, errNotFound)
+	}
+	tokens := []string{}
+	now := time.Now().String()
+	for _, t := range f.tokens {
+		reaches := slices.ContainsFunc(t.json.Scope, func(s string) bool { return s == "*" || strings.HasPrefix(s, project.slug+"/") })
+		if t.org == o.id && t.json.RevokedAt == nil && reaches {
+			t.json.RevokedAt = &now
+			tokens = append(tokens, t.json.ID)
+		}
+	}
+	task := &fakeRotation{org: o.id, rotationJSON: rotationJSON{ID: fmt.Sprintf("rot-%d", len(f.rotations)+1), Reason: "emergency",
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
+	for _, e := range f.envs {
+		if e.project != project.id {
+			continue
+		}
+		e.needsRotation = true
+		f.wrapped = slices.DeleteFunc(f.wrapped, func(w *fakeWrapped) bool {
+			mine := w.w.RecipientUserID != nil && *w.w.RecipientUserID == user && (w.w.RecipientID == b.Device || w.w.RecipientID == "recovery")
+			return w.env == e.id && !mine
+		})
+		for _, sec := range f.current(e.id) {
+			task.Items = append(task.Items, struct {
+				SecretID string `json:"secret_id"`
+				Status   string `json:"status"`
+			}{secretID(e.id, sec.Name), RotationPending})
+		}
+	}
+	f.rotations = append(f.rotations, task)
+	f.audit(o.id, user, "project.emergency", project.slug, `{}`)
+	return map[string]any{"tokens": tokens, "secrets": len(task.Items)}, 200, nil
 }
 
 // ---------------------------------------------------------------- guided rotation

@@ -805,6 +805,12 @@ func (s *Service) openCurrent(ctx context.Context, c *Client, st *State, device 
 // rotateTo starts the epoch after current, which is nil for an environment
 // with no key and no values yet. v decides who receives the new key.
 func (s *Service) rotateTo(ctx context.Context, c *Client, st *State, device *cloudcrypto.Device, v *view, p *projectJSON, e *environmentJSON, current *opened) (uint64, error) {
+	return s.rotateFor(ctx, c, st, device, v, p, e, current, nil)
+}
+
+// rotateFor is rotateTo with the new key wrapped only for the recipients
+// keep accepts, among the ones the chain allows; nil accepts them all.
+func (s *Service) rotateFor(ctx context.Context, c *Client, st *State, device *cloudcrypto.Device, v *view, p *projectJSON, e *environmentJSON, current *opened, keep func(recipient) bool) (uint64, error) {
 	epoch := e.Epoch + 1
 	if current != nil {
 		epoch = current.payload.Epoch + 1
@@ -814,7 +820,11 @@ func (s *Service) rotateTo(ctx context.Context, c *Client, st *State, device *cl
 		return 0, err
 	}
 	defer key.Wipe()
-	rows, err := wrapAll(device, key, v.recipients(p, e))
+	recipients := v.recipients(p, e)
+	if keep != nil {
+		recipients = slices.DeleteFunc(recipients, func(r recipient) bool { return !keep(r) })
+	}
+	rows, err := wrapAll(device, key, recipients)
 	if err != nil {
 		return 0, err
 	}

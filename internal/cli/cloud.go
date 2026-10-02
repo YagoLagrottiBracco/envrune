@@ -47,6 +47,7 @@ const cloudUsage = `cloud <command>
   token create <org> --scope s[,s] [--name n] [--expires 90d]
   token revoke <id>
   import-team <org/project/env> [--relink] Move envrune.team.json's values to the cloud
+  emergency <org/project>                  Take a compromised project's keys from everyone
   proxy keygen                             A proxy identity, for whoever runs a server
   audit export <org> [--output file]       Download the audit log and verify it
   audit verify <file> [--since older-file] Check an export again, offline`
@@ -174,6 +175,8 @@ func (w Workspace) cloud(argv []string) int {
 		return w.cloudImportTeam(rest)
 	case "proxy":
 		return w.cloudProxy(rest)
+	case "emergency":
+		return w.cloudEmergency(rest)
 	}
 	return w.usageError(cloudUsage)
 }
@@ -872,6 +875,48 @@ func (w Workspace) cloudRotate(argv []string) int {
 	return 0
 }
 
+// cloudEmergency is for a project whose secrets must be assumed known: it
+// takes the keys from every device but this one (docs/cloud-operations.md).
+func (w Workspace) cloudEmergency(argv []string) int {
+	parts := []string{}
+	if len(argv) == 1 {
+		parts = strings.Split(argv[0], "/")
+	}
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return w.usageError("cloud emergency <org/project>")
+	}
+	org, project := parts[0], parts[1]
+	w.status().Warn(fmt.Sprintf("This takes the keys of every environment of %s from every device but this one, and revokes the machine tokens that reach it. Members and CI stop working there until you share the new keys.", argv[0]))
+	if w.ReadChoice == nil {
+		w.status().Error("An emergency is confirmed at the keyboard.")
+		return 1
+	}
+	if answer, err := w.ReadChoice("Type " + argv[0] + " to go ahead"); err != nil || strings.TrimSpace(answer) != argv[0] {
+		w.status().Error("Nothing was changed.")
+		return 1
+	}
+	ctx, cancel := cloudContext()
+	defer cancel()
+	e, err := w.cloudService().Emergency(ctx, org, project)
+	if e != nil {
+		if len(e.Tokens) > 0 {
+			w.status().Info("Revoked the machine " + plural(len(e.Tokens), "token ", "tokens ") + strings.Join(e.Tokens, ", ") + ".")
+		}
+		if len(e.Rotated) > 0 {
+			w.status().Info("New keys, held by this device only: " + strings.Join(e.Rotated, ", ") + ".")
+		}
+		for _, env := range e.Left {
+			w.status().Warn(fmt.Sprintf("This device had no key for %s, so it made no new one. Its old key is gone from the server; set its values again.", env))
+		}
+	}
+	if err != nil {
+		return w.cloudFail(err)
+	}
+	w.status().Success(fmt.Sprintf("%s is locked down. %d %s listed to replace: `envrune cloud rotation %s`.", argv[0], e.Secrets, plural(e.Secrets, "value is", "values are"), org))
+	w.status().Info(fmt.Sprintf("Review who should still be a member (`envrune cloud org show %s`), then give the keys back with `envrune cloud share %s` and create new tokens for CI.", org, org))
+	return 0
+}
+
 // cloudStatus shows when each value of an environment was written and
 // which devices and tokens have fetched it since.
 func (w Workspace) cloudStatus(argv []string) int {
@@ -966,7 +1011,11 @@ func (w Workspace) cloudRotation(argv []string) int {
 			continue
 		}
 		pending += t.Pending()
-		fmt.Fprintf(out, "%s, %s: %s could read %d %s; %d still to replace.\n", t.Created.Format("2006-01-02"), t.Reason, t.Subject,
+		who := t.Subject
+		if who == "" {
+			who = "anyone who had access"
+		}
+		fmt.Fprintf(out, "%s, %s: %s could read %d %s; %d still to replace.\n", t.Created.Format("2006-01-02"), t.Reason, who,
 			len(t.Items), plural(len(t.Items), "secret", "secrets"), t.Pending())
 		for _, i := range t.Items {
 			if i.Status == cloud.RotationPending || a.flags["all"] {
