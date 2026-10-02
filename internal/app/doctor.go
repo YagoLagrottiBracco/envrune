@@ -3,6 +3,7 @@ package app
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/YagoLagrottiBracco/envrune/internal/project"
 	"github.com/YagoLagrottiBracco/envrune/internal/redact"
 	"github.com/YagoLagrottiBracco/envrune/internal/team"
+	"github.com/YagoLagrottiBracco/envrune/internal/vault"
 )
 
 type Level int
@@ -61,6 +63,11 @@ func CheckProject(projectPath string) []Finding {
 	}
 	out = append(out, scanForValues(projectPath)...)
 	out = append(out, findDotenvFiles(filepath.Dir(projectPath))...)
+	// The personal override is one developer's; in Git it becomes everyone's.
+	if dir := filepath.Dir(projectPath); gitTracked(dir, project.LocalFileName) {
+		out = append(out, Finding{LevelWarn, fmt.Sprintf("%s is tracked by Git, so everyone gets one person's overrides; remove it with `git rm --cached %s` and add it to .gitignore",
+			project.LocalFileName, project.LocalFileName)})
+	}
 	if path := team.Path(projectPath); team.Exists(path) {
 		if members, err := team.Members(path); err != nil {
 			out = append(out, Finding{LevelError, fmt.Sprintf("%s is unreadable: %v", team.FileName, err)})
@@ -161,6 +168,13 @@ func findDotenvFiles(root string) []Finding {
 	return out
 }
 
+func gitTracked(dir, rel string) bool {
+	if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
+		return false
+	}
+	return exec.Command("git", "-C", dir, "ls-files", "--error-unmatch", rel).Run() == nil
+}
+
 func gitIgnored(dir, rel string) bool {
 	cmd := exec.Command("git", "-C", dir, "check-ignore", "-q", rel)
 	return cmd.Run() == nil
@@ -184,6 +198,9 @@ func (s *Session) CheckSecrets(projectPath string, now time.Time) []Finding {
 			switch {
 			case err == nil:
 				out = append(out, Finding{LevelOK, fmt.Sprintf("environment %s: all %d references exist", environment, len(config.Environments[environment]))})
+			case errors.Is(err, ErrSensitive):
+				// It exists, and has no value here to check.
+				out = append(out, Finding{LevelOK, fmt.Sprintf("environment %s uses a sensitive secret, which only a command started with run or by name can use", environment)})
 			default:
 				out = append(out, Finding{LevelError, fmt.Sprintf("environment %s: %v", environment, err)})
 			}
@@ -218,7 +235,40 @@ func (s *Session) CheckSecrets(projectPath string, now time.Time) []Finding {
 			out = append(out, Finding{LevelWarn, fmt.Sprintf("%s has not changed in %d days", info.Reference, int(now.Sub(info.UpdatedAt).Hours()/24))})
 		}
 	}
-	return out
+	return append(out, s.unused(infos, now)...)
+}
+
+// UnusedAfter is how long a secret goes without a command using it before
+// doctor lists it as a candidate to remove.
+const UnusedAfter = 90 * 24 * time.Hour
+
+// unused lists the secrets no command was given in UnusedAfter and that no
+// project the vault knows links. Nothing is removed for the user.
+func (s *Session) unused(infos []vault.Info, now time.Time) []Finding {
+	var names []string
+	for _, info := range infos {
+		since := info.CreatedAt
+		if last, err := time.Parse(time.DateOnly, info.LastUsed); err == nil {
+			since = last
+		}
+		if since.IsZero() || now.Sub(since) <= UnusedAfter {
+			continue
+		}
+		if usages, err := s.Usage(info.Reference.String()); err != nil || len(usages) > 0 {
+			continue
+		}
+		names = append(names, info.Reference.String())
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	sort.Strings(names)
+	which := "it"
+	if len(names) > 1 {
+		which = "them"
+	}
+	return []Finding{{LevelWarn, fmt.Sprintf("no project links %s, and no command used %s in %d days; remove what is no longer needed with `envrune remove`",
+		strings.Join(names, ", "), which, int(UnusedAfter.Hours()/24))}}
 }
 
 func pluralVerb(n int) string {

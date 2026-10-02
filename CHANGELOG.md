@@ -27,6 +27,23 @@ All notable changes to EnvRune are listed here. The format follows
   the current values, `cloud set --transition 24h` records how long the
   previous value keeps working, and commands a consumer runs are noted and
   reported to the audit log as `secret.use`.
+- **More in envrune.yml** (`docs/project-file.md`), each a new key that
+  leaves existing files as they were:
+  - `extends:` lets an environment build on another, and `workspace:` lets
+    a package of a monorepo start from the root's environments.
+  - `envrune.local.yml` holds one developer's own overrides, outside Git;
+    `envrune link --local` writes it.
+  - `files:` delivers a secret as a file for the length of one command, for
+    certificates, keys, and credentials files; `envrune set --file` stores
+    one.
+  - `render:` and `envrune render` fill in a configuration template with
+    the environment's values, in a file that never lands in the project.
+  - `checks:` and `envrune check` run the project's own tests that its
+    secrets still work.
+- **`envrune doctor`** lists the secrets no command used in 90 days and no
+  project links, and `usage` shows the last day a secret was used.
+- **`run` and named commands survive Ctrl+C** long enough to remove what
+  they wrote for the command; the command itself still receives it.
 - **Sensitive secrets** (EnvRune Cloud): a value that members use without
   it ever reaching their machine. An owner or admin marks it with
   `cloud set --sensitive --allow-host <host>`; `run` and named commands

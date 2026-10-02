@@ -183,7 +183,9 @@ turning it into a secret-bearing file.
 | `<name>` / `up` | Run a command from `commands:` in `envrune.yml`, or several at once. |
 | `copy <reference>` | Copy a value to the clipboard; cleared after 30 seconds. |
 | `rotate` / `rollback` / `history` | Replace a value and keep the previous ones. |
-| `doctor` | Find missing references, forgotten `.env` files, and pasted values. |
+| `doctor` | Find missing references, forgotten `.env` files, pasted values, and secrets nobody uses. |
+| `check [name...]` | Run the project's own checks that its secrets still work. |
+| `render <template> -- <command>` | Fill in a configuration template for one run. |
 | `guard install` | Block commits that stage a vault value. |
 | `scan [path...]` | Find vault values already in files, logs, and Git history. |
 | `mcp` | MCP server for AI agents: run named commands with masked output, never read values. |
@@ -209,6 +211,7 @@ output is already plain.
 | [Advanced usage](docs/advanced-usage.md) | Work with environments, imports, exports, generated values, and sessions. |
 | [Integrations](docs/integrations.md) | Use EnvRune from VS Code (extension, tasks, debugging), Docker Compose, and a direnv-style terminal hook. |
 | [Vault state in your prompt](docs/prompt.md) | Show locked or unlocked in Starship, Oh My Posh, or any prompt. |
+| [More in envrune.yml](docs/project-file.md) | Environments that extend each other, a personal override, workspaces, secrets as files, templates, and checks. |
 | [Documented variables](docs/variables.md) | Describe each variable, validate values, and onboard with `envrune setup`. |
 | [Keeping values out of Git](docs/guard.md) | Block commits that contain vault values, and find old leaks. |
 | [AI agents](docs/mcp.md) | Let Claude Code, Cursor, or Copilot run commands with secrets they cannot read. |

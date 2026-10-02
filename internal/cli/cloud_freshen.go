@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/YagoLagrottiBracco/envrune/internal/app"
 	"github.com/YagoLagrottiBracco/envrune/internal/cloud"
@@ -58,6 +59,11 @@ func (w Workspace) freshen(projectPath, environment string) []cloud.Path {
 // user may use but not see. The device reports the note when it is next
 // online; see docs/managed-keys.md. Names and the time only.
 func noteUse(store cloud.Store, projectPath string, resolved app.Resolved) {
+	// The vault notes the day its own secrets were last used, whatever the
+	// role: doctor points at the ones nobody uses anymore.
+	if session, ok := store.(*app.Session); ok && session.HasVault() {
+		_ = session.NoteUsed(projectPath, resolved.Environment, time.Now())
+	}
 	if !resolved.Restricted {
 		return
 	}

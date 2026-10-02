@@ -427,6 +427,13 @@ func (w Workspace) usage(argv []string) int {
 	for _, usage := range usages {
 		fmt.Fprintf(w.Stdout, "%s %s %s\n", usage.ProjectPath, usage.Environment, usage.Variable)
 	}
+	if info, err := w.Session.Info(argv[0]); err == nil {
+		if info.LastUsed != "" {
+			w.status().Info("A command last used it on " + info.LastUsed + ".")
+		} else {
+			w.status().Info("No command has used it yet.")
+		}
+	}
 	w.status().Success("Secret usage listed.")
 	return 0
 }

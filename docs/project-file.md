@@ -1,8 +1,10 @@
-# More in envrune.yml: design
+# More in envrune.yml
 
-Status: **being implemented.** This describes additions to `envrune.yml`.
-Every file that works today keeps working unchanged: each addition is a new
-top-level key, and a file without them means what it meant before.
+This describes what `envrune.yml` can hold beyond variables, commands, and
+documented variables: environments that build on each other, a personal
+override, workspaces, secrets delivered as files, templates, and checks.
+Each is a top-level key of its own; a file without them means what it
+always meant.
 
 Like the rest of EnvRune, none of this knows a service. A secret is a
 value, a file, or a line in a template; what it is for is the project's

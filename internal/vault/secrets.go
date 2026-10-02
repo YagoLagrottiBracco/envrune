@@ -32,6 +32,8 @@ type SecretMeta struct {
 	CreatedAt   time.Time   `json:"created_at"`
 	UpdatedAt   time.Time   `json:"updated_at"`
 	History     []PastValue `json:"history,omitempty"`
+	// LastUsed is the last day (YYYY-MM-DD) a command was given the secret.
+	LastUsed string `json:"last_used,omitempty"`
 }
 
 type PastValue struct {
@@ -48,6 +50,7 @@ type Info struct {
 	CreatedAt   time.Time // zero when the secret predates metadata
 	UpdatedAt   time.Time
 	Previous    []time.Time // when each kept earlier value was replaced
+	LastUsed    string      // YYYY-MM-DD; empty when no command used it yet
 }
 
 func newPayload() payload {
@@ -147,12 +150,35 @@ func (v *Opened) Info(ref domain.Reference) (Info, bool) {
 	info := Info{Reference: ref}
 	if m := v.data.Meta[ref.String()]; m != nil {
 		info.Description, info.Owner, info.Expires = m.Description, m.Owner, m.Expires
-		info.CreatedAt, info.UpdatedAt = m.CreatedAt, m.UpdatedAt
+		info.CreatedAt, info.UpdatedAt, info.LastUsed = m.CreatedAt, m.UpdatedAt, m.LastUsed
 		for _, past := range m.History {
 			info.Previous = append(info.Previous, past.ReplacedAt)
 		}
 	}
 	return info, true
+}
+
+// UsedBefore reports whether any of refs has no note of use on day yet, so
+// a caller can skip writing the vault when there is nothing to note.
+func (v *Opened) UsedBefore(refs []domain.Reference, day string) bool {
+	for _, ref := range refs {
+		if !v.Has(ref) {
+			continue
+		}
+		if m := v.data.Meta[ref.String()]; m == nil || m.LastUsed != day {
+			return true
+		}
+	}
+	return false
+}
+
+// NoteUsed records day as the last day a command was given each of refs.
+func (v *Opened) NoteUsed(refs []domain.Reference, day string) {
+	for _, ref := range refs {
+		if v.Has(ref) {
+			v.data.meta(ref.String()).LastUsed = day
+		}
+	}
 }
 
 // MetaChange sets only the fields that are not nil.
