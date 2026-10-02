@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -103,8 +104,8 @@ func newSensitiveServer(t *testing.T, hosts []string) *sensitiveServer {
 const sensitiveConfig = "version: 1\nproject: shop\ncloud: acme/shop\ndefault_env: production\nenvironments:\n  production:\n    PAYMENTS_KEY: cloud.payments-key\n"
 
 func TestAProgramUsesASensitiveSecretThroughRun(t *testing.T) {
-	if _, err := exec.LookPath("curl"); err != nil {
-		t.Skip("needs curl, as a program that honours the proxy variables")
+	if _, err := exec.LookPath("curl"); err != nil || runtime.GOOS == "windows" {
+		t.Skip("needs curl and a POSIX shell, as a program that honours the proxy variables")
 	}
 	server := newSensitiveServer(t, []string{"api.example.com"})
 	f := newFixture(t, sensitiveConfig)

@@ -47,6 +47,7 @@ needs them directly.
 | **Unlock** | One password a day | `envrune unlock --ttl 8h` or the system keychain unlocks every terminal, editor, and hook. |
 | **Teams** | Shared secrets without a server | Commit `envrune.team.json`, encrypted to each member's key; CI gets its own identity. |
 | **Cloud** | End-to-end encrypted sharing, on a server you run | Roles, machine tokens for CI, guided rotation when someone leaves, and an audit log. The server stores ciphertext and never sees a value. Optional: everything else works without it. |
+| **Managed keys** | Replace a key in one place; let people use one they never receive | A replaced value reaches every device and running command by itself. A key marked sensitive stays off the developer's machine: their program's requests go through the server, which adds it. Works for any service. |
 | **Safety net** | Recovery, history, doctor | A recovery key, encrypted backups, rotation with rollback, and `envrune doctor` for forgotten `.env` files. |
 | **Overview** | Local dashboard | Inspect references and project bindings without exposing values in the browser. |
 
@@ -216,6 +217,7 @@ output is already plain.
 | [Teams and CI](docs/teams-and-ci.md) | Share secrets with a team file and give pipelines access. |
 | [EnvRune Cloud](docs/cloud.md) | Share secrets with roles, CI tokens, guided rotation, and an audit log, end-to-end encrypted. |
 | [Self-hosting EnvRune Cloud](docs/self-hosting.md) | Run the server on your own infrastructure with Docker. |
+| [Keys managed by their owner](docs/managed-keys.md) | See how a replaced value distributes itself, and how a sensitive secret is used without reaching a machine. |
 | [EnvRune Cloud's cryptographic design](docs/cloud-crypto.md) | Check what the server stores, what a compromised one can and cannot do, and how devices verify everything. |
 | [Windows and WSL](docs/wsl.md) | Keep one vault or two across Windows and WSL. |
 | [Local dashboard](docs/local-ui.md) | Understand the loopback UI, its token flow, and its limits. |
@@ -243,6 +245,10 @@ output is already plain.
   through signatures that end at keys your team pinned, and the server stores
   ciphertext and names. It can refuse service or see who fetched what; it
   cannot read a value. See [its design](docs/cloud-crypto.md).
+- The one exception is a secret its owner marks sensitive, so that members
+  use it without receiving it: the server reads that one to put it into
+  their requests. It is chosen per secret, after a warning, and only on a
+  server set up for it. See [managed keys](docs/managed-keys.md).
 - The dashboard listens only on loopback, exposes metadata rather than values,
   and uses one-time session material, Host/Origin checks, CSRF protection, and
   no-store headers.
