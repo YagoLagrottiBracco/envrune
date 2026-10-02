@@ -90,19 +90,21 @@ the same way as one replaced in the cloud.
 ### Transition period
 
 Rotating a key at a provider usually leaves the old key valid for a while.
-`envrune cloud set <path> --transition 24h` records, with the new version,
-until when the previous one is still expected to work. During that time a
-device that has not synced is **behind**, and after it **stale**:
+`envrune cloud set <path> --transition 24h` records until when the previous
+value is still expected to work. A device or token that has not fetched the
+environment since the new value was written is **behind**, and once the
+transition has passed, **stale**. `envrune cloud status <env>` lists every
+device and token that fetched the environment with its last sync and that
+state, and the panel shows how many are behind.
 
-- `envrune doctor` and `run` warn about a stale copy before starting;
-- the panel and `envrune cloud rotation` show, per secret, which devices and
-  tokens have fetched the environment since the new version was written and
-  which have not.
+A device cannot tell by itself that its copy is behind: online, it has
+already pulled the new value before starting a command; offline, it cannot
+ask. So this is a view for the owner, not a warning on the device.
 
-The transition is information for people, signed with the version like its
-other fields. EnvRune does not keep the old key working at the provider and
-does not stop a device from using a stale copy: only the provider can
-invalidate a key.
+The transition is information for people and is not signed: a server that
+lied about it would only mislabel a device. EnvRune does not keep the old
+value working where it was issued and does not stop a device from using a
+copy that is behind: only whoever issued the value can invalidate it.
 
 "Who uses the new version" is derived from the audit log: a device or token
 uses version N once it fetched the environment after N was written. No new

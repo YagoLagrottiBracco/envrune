@@ -92,6 +92,7 @@ EnvRune Cloud (end-to-end encrypted sharing; run envrune cloud for details)
   cloud device|org|member|project|env ...  Devices, organizations, and members
   cloud set|copy|pull|sync|share|rotate ... Secrets, verified on this device
   cloud rotation <org>        Values someone who left could read, to replace
+  cloud status <org/p/env>    Who already has the current values
   cloud token create|revoke   Machine tokens for CI
   cloud audit export|verify   The audit log, checked for edits and gaps
 

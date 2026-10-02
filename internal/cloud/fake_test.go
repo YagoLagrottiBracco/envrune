@@ -40,6 +40,12 @@ type fakeServer struct {
 	tokens   []*fakeToken
 	fetches  int
 	checks   int
+	// written is when the current version of each secret was stored,
+	// transition until when its previous value should work, and lastFetch
+	// when each reader last fetched each environment.
+	written    map[string]time.Time
+	transition map[string]time.Time
+	lastFetch  map[string]map[fakeReader]time.Time
 	// unreachable makes version checks answer too slowly to wait for.
 	unreachable bool
 	// fetched records who fetched each environment, as the audit log does:
@@ -74,6 +80,9 @@ type fakeWrapped struct {
 	w   wrappedJSON
 }
 
+// fakeReader is a member's device, or a machine token.
+type fakeReader struct{ user, device, token string }
+
 type fakeRotation struct {
 	rotationJSON
 	org string
@@ -89,7 +98,8 @@ type fakeToken struct {
 func newFakeServer(t *testing.T) *fakeServer {
 	f := &fakeServer{t: t, emails: map[string]string{}, profiles: map[string]*fakeProfile{}, members: map[string]map[string]memberJSON{},
 		versions: map[string][]secretJSON{}, fetched: map[string]map[string]bool{},
-		audits: map[string][]AuditEntry{}}
+		audits: map[string][]AuditEntry{}, written: map[string]time.Time{}, transition: map[string]time.Time{},
+		lastFetch: map[string]map[fakeReader]time.Time{}}
 	mux := http.NewServeMux()
 	route := func(pattern string, h func(user string, r *http.Request) (any, int, error)) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
@@ -138,6 +148,8 @@ func newFakeServer(t *testing.T) *fakeServer {
 	route("PATCH /api/v1/rotation/{task}/items/{secret}", f.patchRotationItem)
 	route("GET /api/v1/orgs/{org}/audit", f.getAudit)
 	route("GET /api/v1/versions", f.getVersions)
+	route("GET /api/v1/environments/{env}/status", f.getStatus)
+	route("PUT /api/v1/environments/{env}/secrets/{name}/transition", f.putTransition)
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
 	return f
@@ -526,6 +538,7 @@ func (f *fakeServer) getEnvironment(user string, r *http.Request) (any, int, err
 	}
 	f.fetches++
 	f.recordFetch(env, "user:"+user)
+	f.read(env, fakeReader{user: user, device: device})
 	if e, p := f.envInfo(env); e != nil {
 		f.audit(p.org, user, "environment.fetch", p.slug+"/"+e.slug, fmt.Sprintf(`{"epoch": %d}`, e.epoch))
 	}
@@ -617,6 +630,8 @@ func (f *fakeServer) storeVersion(user, env string, b fakeVersion, newValue bool
 	}
 	f.versions[env] = append(f.versions[env], secretJSON{Name: b.Name, Version: b.Version, Epoch: b.Epoch, Nonce: b.Nonce, Ciphertext: b.Ciphertext,
 		WriterUserID: user, WriterDeviceID: b.Device, Signature: b.Signature})
+	f.written[secretID(env, b.Name)] = time.Now()
+	delete(f.transition, secretID(env, b.Name))
 	if newValue {
 		for _, r := range f.rotations {
 			for i := range r.Items {
@@ -723,6 +738,7 @@ func (f *fakeServer) machineEnvironment(_ string, r *http.Request) (any, int, er
 				return fail(403, errForbidden)
 			}
 			f.recordFetch(e.id, "token:"+id)
+			f.read(e.id, fakeReader{token: id})
 			return f.payload(e.id, func(w wrappedJSON) bool { return w.RecipientTokenID != nil && *w.RecipientTokenID == id }), 200, nil
 		}
 	}
@@ -806,6 +822,70 @@ func (f *fakeServer) getVersions(user string, r *http.Request) (any, int, error)
 		out[id] = v
 	}
 	return out, 200, nil
+}
+
+// ---------------------------------------------------------------- who has the current values
+
+func (f *fakeServer) read(env string, reader fakeReader) {
+	if f.lastFetch[env] == nil {
+		f.lastFetch[env] = map[fakeReader]time.Time{}
+	}
+	f.lastFetch[env][reader] = time.Now()
+}
+
+func (f *fakeServer) getStatus(user string, r *http.Request) (any, int, error) {
+	env := r.PathValue("env")
+	e, p := f.envInfo(env)
+	if e == nil || !(f.canAdminister(env, user) || slices.Contains([]string{"owner", "admin", "auditor"}, f.role(p.org, user).Role)) {
+		return fail(403, errForbidden)
+	}
+	var out statusJSON
+	for _, sec := range f.current(env) {
+		row := struct {
+			Name            string     `json:"name"`
+			Version         uint64     `json:"version"`
+			WrittenAt       time.Time  `json:"written_at"`
+			TransitionUntil *time.Time `json:"transition_until"`
+		}{Name: sec.Name, Version: sec.Version, WrittenAt: f.written[secretID(env, sec.Name)]}
+		if until, ok := f.transition[secretID(env, sec.Name)]; ok {
+			row.TransitionUntil = &until
+		}
+		out.Secrets = append(out.Secrets, row)
+	}
+	for reader, at := range f.lastFetch[env] {
+		row := struct {
+			UserID    *string   `json:"user_id"`
+			DeviceID  *string   `json:"device_id"`
+			TokenID   *string   `json:"token_id"`
+			LastFetch time.Time `json:"last_fetch"`
+		}{LastFetch: at}
+		if reader.token != "" {
+			row.TokenID = &reader.token
+		} else {
+			row.UserID, row.DeviceID = &reader.user, &reader.device
+		}
+		out.Fetches = append(out.Fetches, row)
+	}
+	return out, 200, nil
+}
+
+func (f *fakeServer) putTransition(user string, r *http.Request) (any, int, error) {
+	env, name := r.PathValue("env"), r.PathValue("name")
+	b := decode[struct {
+		Until *time.Time `json:"until"`
+	}](r)
+	if e, _ := f.envInfo(env); e == nil || !f.canAdminister(env, user) {
+		return fail(403, errForbidden)
+	}
+	if _, ok := f.written[secretID(env, name)]; !ok {
+		return fail(404, errNotFound)
+	}
+	if b.Until == nil {
+		delete(f.transition, secretID(env, name))
+	} else {
+		f.transition[secretID(env, name)] = *b.Until
+	}
+	return nil, 204, nil
 }
 
 // ---------------------------------------------------------------- audit

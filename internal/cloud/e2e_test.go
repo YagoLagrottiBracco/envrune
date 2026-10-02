@@ -264,6 +264,26 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("bob has %q: %v", values["stripe-key"], err)
 	}
 
+	// The owner sees who has the new value: bob, who just pulled it, does.
+	ok(t, alice.SetTransition(ctx, prod, time.Now().Add(time.Hour)))
+	status := must[*EnvStatus](t)(alice.EnvironmentStatus(ctx, env))
+	if len(status.Secrets) != 1 || status.Secrets[0].TransitionUntil.IsZero() {
+		t.Fatalf("the status has %+v", status.Secrets)
+	}
+	bobID := must[*Status](t)(bob.Status()).UserID
+	upToDate := false
+	for _, r := range status.Readers {
+		if r.UserID == bobID && len(r.Behind) == 0 {
+			upToDate = true
+		}
+	}
+	if !upToDate {
+		t.Fatalf("bob does not show as up to date: %+v", status.Readers)
+	}
+	if _, err := bob.EnvironmentStatus(ctx, env); err == nil {
+		t.Fatal("a consumer saw who synced")
+	}
+
 	// The offline limit is the admins' to set, and members' devices learn it.
 	if err := bob.SetOfflineDays(ctx, org, 30); err == nil {
 		t.Fatal("a consumer set the offline limit")
@@ -282,7 +302,7 @@ func TestEndToEnd(t *testing.T) {
 		seen[entry.Action] = true
 	}
 	for _, action := range []string{"org.create", "member.consumer", "member.removed", "device.approve", "key.share", "secret.write",
-		"secret.reencrypt", "environment.fetch", "environment.rotate", "token.create", "token.revoke", "rotation.accepted", "org.offline_days"} {
+		"secret.reencrypt", "environment.fetch", "environment.rotate", "token.create", "token.revoke", "rotation.accepted", "org.offline_days", "secret.transition"} {
 		if !seen[action] {
 			t.Errorf("the audit log has no %s", action)
 		}

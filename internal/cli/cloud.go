@@ -33,6 +33,8 @@ const cloudUsage = `cloud <command>
   env create <org/project/env>
   set <org/project/env/name>               Store a value (asked twice, never echoed)
   set <org/project/env/name> --generate [--length n]
+  set ... --transition 24h                 Say how long the previous value still works
+  status <org/project/env>                 Who already has the current values
   copy <org/project/env/name> [--clear-after 30s]
   pull <org/project/env> [--allow-older]   Refresh this device's copy of an environment
   sync                                     Pull every environment you can use
@@ -157,6 +159,8 @@ func (w Workspace) cloud(argv []string) int {
 		return w.cloudShare(rest)
 	case "rotate":
 		return w.cloudRotate(rest)
+	case "status":
+		return w.cloudStatus(rest)
 	case "rotation":
 		return w.cloudRotation(rest)
 	case "token":
@@ -601,11 +605,17 @@ func (w Workspace) cloudEnv(argv []string) int {
 }
 
 func (w Workspace) cloudSet(argv []string) int {
-	const usage = "cloud set <org/project/env/name> [--generate [--length <n>]]"
-	a, err := parseArgs(argv, []string{"length"}, []string{"generate"}, false)
+	const usage = "cloud set <org/project/env/name> [--generate [--length <n>]] [--transition <24h|7d>]"
+	a, err := parseArgs(argv, []string{"length", "transition"}, []string{"generate"}, false)
 	_, hasLength := a.options["length"]
 	if err != nil || len(a.positional) != 1 || (hasLength && !a.flags["generate"]) {
 		return w.usageError(usage)
+	}
+	var transition time.Duration
+	if raw, ok := a.options["transition"]; ok {
+		if transition, err = parseDays(raw, 0); err != nil || transition <= 0 {
+			return w.usageError(usage)
+		}
 	}
 	path, err := cloud.ParsePath(a.positional[0], true)
 	if err != nil {
@@ -631,6 +641,19 @@ func (w Workspace) cloudSet(argv []string) int {
 	version, err := w.cloudService().Set(ctx, path, value)
 	if err != nil {
 		return w.cloudFail(err)
+	}
+	env := path
+	env.Name = ""
+	defer func() {
+		w.status().Info(fmt.Sprintf("Devices pick it up the next time they run a command. `envrune cloud status %s` shows who has.", env))
+	}()
+	if transition > 0 {
+		until := time.Now().Add(transition)
+		if err := w.cloudService().SetTransition(ctx, path, until); err != nil {
+			w.status().Warn("The value was stored, but the transition was not recorded: " + err.Error())
+		} else {
+			defer w.status().Info("The previous value is expected to work until " + until.Local().Format("2006-01-02 15:04") + ".")
+		}
 	}
 	if a.flags["generate"] {
 		w.status().Success(fmt.Sprintf("Stored a new %d-character value as %s, version %d.", len(value), path, version))
@@ -761,6 +784,59 @@ func (w Workspace) cloudRotate(argv []string) int {
 	if a.flags["accept-removed"] {
 		w.status().Warn("What a former member had signed was taken as it was. If a value may have changed since they left, check it and store it again.")
 	}
+	return 0
+}
+
+// cloudStatus shows when each value of an environment was written and
+// which devices and tokens have fetched it since.
+func (w Workspace) cloudStatus(argv []string) int {
+	if len(argv) != 1 {
+		return w.usageError("cloud status <org/project/env>")
+	}
+	path, err := cloud.ParsePath(argv[0], false)
+	if err != nil {
+		return w.cloudFail(err)
+	}
+	ctx, cancel := cloudContext()
+	defer cancel()
+	status, err := w.cloudService().EnvironmentStatus(ctx, path)
+	if err != nil {
+		return w.cloudFail(err)
+	}
+	const layout = "2006-01-02 15:04"
+	out := tabwriter.NewWriter(w.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(out, "SECRET\tVERSION\tWRITTEN\tPREVIOUS VALUE WORKS UNTIL")
+	for _, s := range status.Secrets {
+		until := "-"
+		if !s.TransitionUntil.IsZero() {
+			until = s.TransitionUntil.Local().Format(layout)
+		}
+		fmt.Fprintf(out, "%s\t%d\t%s\t%s\n", s.Name, s.Version, s.WrittenAt.Local().Format(layout), until)
+	}
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "DEVICE OR TOKEN\tLAST SYNC\tSTATE")
+	behind := 0
+	for _, r := range status.Readers {
+		state := "has every current value"
+		switch {
+		case len(r.Stale) > 0:
+			state = "stale: its value of " + strings.Join(r.Stale, ", ") + " is past its transition"
+		case len(r.Behind) > 0:
+			state = "behind on " + strings.Join(r.Behind, ", ")
+		}
+		if len(r.Behind) > 0 {
+			behind++
+		}
+		fmt.Fprintf(out, "%s\t%s\t%s\n", r.Name(), r.LastFetch.Local().Format(layout), state)
+	}
+	out.Flush()
+	if behind == 0 {
+		w.status().Success(fmt.Sprintf("Every device and token that fetched %s has its current values.", path))
+	} else {
+		w.status().Warn(fmt.Sprintf("%d of %d have not fetched %s since a value changed. A device syncs when it next runs a command while online.",
+			behind, len(status.Readers), path))
+	}
+	w.status().Info("This shows what reached each device. A process started before the change keeps the old value until it is restarted.")
 	return 0
 }
 

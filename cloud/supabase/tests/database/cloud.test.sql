@@ -4,7 +4,7 @@
 -- member. Signatures are placeholders: the database does not check them;
 -- the API and every client do.
 begin;
-select plan(46);
+select plan(50);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'alice@example.com'),
@@ -174,6 +174,15 @@ select pg_temp.become('00000000-0000-0000-0000-00000000000b');
 select public.set_offline_days(:'org', 30);
 select is((select offline_days from public.organizations where id = :'org'), 30, 'an admin sets the offline limit');
 select throws_ok(format($$ select public.set_offline_days(%L, 0) $$, :'org'), '22023', null, 'the offline limit is at least a day');
+
+-- Who has the current values: for those who administer the environment.
+select pg_temp.become('00000000-0000-0000-0000-00000000000b');
+select public.set_transition(:'env', 'stripe-key', now() + interval '1 day');
+select ok((public.environment_status(:'env')->'secrets'->0->>'transition_until') is not null, 'an admin records a transition');
+select ok(jsonb_array_length(public.environment_status(:'env')->'fetches') >= 1, 'the status lists who fetched the environment');
+select throws_ok(format($$ select public.set_transition(%L, 'missing', now()) $$, :'env'), 'P0002', null, 'a transition needs an existing secret');
+select pg_temp.become('00000000-0000-0000-0000-00000000000e');
+select throws_ok(format($$ select public.environment_status(%L) $$, :'env'), '42501', null, 'a non-member cannot see who synced');
 
 -- The audit log is append-only and hash-chained.
 reset role;

@@ -156,6 +156,25 @@ replaced, and `envrune run --restart-on-rotate` restarts it with the new
 value by itself. A server that serves an older version than one you have seen
 is refused (`--allow-older` accepts it).
 
+## Replacing a value
+
+```sh
+envrune cloud set acme/shop/production/payments-key --transition 24h
+envrune cloud status acme/shop/production
+```
+
+`cloud set` is the whole rotation. Every device pulls the new value the next
+time it runs a command while online, and a running command says so or
+restarts by itself (`--restart-on-rotate`). `--transition` records how long
+the previous value keeps working where it was issued, for your own
+planning.
+
+`cloud status` lists the devices and machine tokens that fetched the
+environment, when each last synced, and which are still **behind** on a
+value, or **stale** once its transition has passed. It shows what reached
+each device, not whether a process there was restarted. Those who
+administer the environment, and auditors, can see it.
+
 ## Audit log
 
 The server records every fetch, write, rotation, membership change, device

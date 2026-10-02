@@ -31,6 +31,24 @@ export default async function OrgPage({ params }: PageProps<"/orgs/[slug]">) {
   const openTasks = (tasks.data ?? []).filter((t: any) => t.rotation_items.some((i: any) => i.status === "pending"));
   const canAccept = me?.role === "owner" || me?.role === "admin";
 
+  // For each environment, how many devices and tokens have not fetched it
+  // since one of its values changed. The database answers only those who
+  // administer the environment or read the audit log; for others it is left out.
+  const behind = new Map<string, { behind: number; readers: number }>();
+  await Promise.all(
+    (projects.data ?? []).flatMap((p: any) =>
+      p.environments.map(async (e: any) => {
+        const { data } = await supabase.rpc("environment_status", { p_env: e.id });
+        if (!data) {
+          return;
+        }
+        const newest = Math.max(0, ...data.secrets.map((s: any) => Date.parse(s.written_at)));
+        const late = data.fetches.filter((f: any) => Date.parse(f.last_fetch) < newest).length;
+        behind.set(e.id, { behind: late, readers: data.fetches.length });
+      }),
+    ),
+  );
+
   return (
     <main className="mx-auto my-12 max-w-4xl px-4">
       <p className="text-sm">
@@ -89,6 +107,11 @@ export default async function OrgPage({ params }: PageProps<"/orgs/[slug]">) {
                 <p className="text-sm">
                   <code>{p.slug}/{e.slug}</code> · epoch {e.epoch}
                   {e.needs_rotation && <span className="ml-2 text-amber-600">needs a new epoch</span>}
+                  {(behind.get(e.id)?.behind ?? 0) > 0 && (
+                    <span className="ml-2 text-amber-600">
+                      {behind.get(e.id)!.behind} of {behind.get(e.id)!.readers} devices and tokens have not synced since a value changed
+                    </span>
+                  )}
                 </p>
                 <ul className="mt-1 pl-4 text-sm text-neutral-600 dark:text-neutral-400">
                   {e.secrets.map((s: any) => (
