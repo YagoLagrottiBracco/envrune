@@ -48,6 +48,8 @@ Projects
   diff <env> <env>            Compare the variables of two environments
   types [ts|python] [--output path]  Generate env.d.ts or a pydantic Settings class
   run [--env e] [--no-redact] [--restart-on-rotate] [--] <command>
+  render <template> [--env e] [--as VAR] -- <command>   Fill in a template for one run
+  check [name...] [--env e]   Run the project's checks that its secrets still work
                               Run a command; values it prints show as ****
   <name> [args]               Run a command defined under commands: in envrune.yml
   up [name...] [--env e]      Run several commands at once
@@ -171,8 +173,8 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	// Reject malformed arguments before asking for the master password.
-	if args[0] == "set" && len(args) != 2 {
-		fmt.Fprintln(stderr, "usage: envrune set <reference>")
+	if args[0] == "set" && len(args) != 2 && !(len(args) == 4 && (args[2] == "--file" || args[1] == "--file")) {
+		fmt.Fprintln(stderr, "usage: envrune set <reference> [--file <path>]")
 		return 2
 	}
 	if args[0] == "ui" {

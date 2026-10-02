@@ -109,6 +109,7 @@ func (w Workspace) up(argv []string) int {
 	}()
 	type plan struct {
 		name, dir string
+		secrets   string // the envrune.yml that supplies its values
 		command   project.Command
 		words     []string
 		resolved  app.Resolved
@@ -134,7 +135,7 @@ func (w Workspace) up(argv []string) int {
 			status.Error(fmt.Sprintf("commands.%s in envrune.yml has unbalanced quotes.", name))
 			return 2
 		}
-		plans = append(plans, plan{name, dir, command, words, r})
+		plans = append(plans, plan{name, dir, secrets, command, words, r})
 		if !w.maySkipMasking(r, a.flags["no-redact"]) {
 			return 1
 		}
@@ -164,7 +165,15 @@ func (w Workspace) up(argv []string) int {
 			prefix = serviceColors[i%len(serviceColors)] + prefix + ansiReset
 		}
 		s := &service{name: p.name, stdout: &prefixWriter{mu: &mu, out: w.Stdout, prefix: prefix}, stderr: &prefixWriter{mu: &mu, out: w.Stderr, prefix: prefix}}
-		spec := runner.Spec{Command: p.words, Additions: p.resolved.Pairs, Inherited: w.environ(), Dir: p.dir, Stdout: s.stdout, Stderr: s.stderr, Group: true}
+		// The files its project asks for, removed when everything has stopped.
+		given, cleanup, err := w.stage(p.secrets, p.resolved.Pairs, nil)
+		if err != nil {
+			stopAll()
+			w.status().Error(p.name + ": " + strings.TrimRight(err.Error(), ".") + ".")
+			return 1
+		}
+		defer cleanup()
+		spec := runner.Spec{Command: p.words, Additions: given, Inherited: w.environ(), Dir: p.dir, Stdout: s.stdout, Stderr: s.stderr, Group: true}
 		if matcher != nil && !matcher.Empty() {
 			s.masks = []*redact.Writer{redact.NewWriter(s.stdout, matcher), redact.NewWriter(s.stderr, matcher)}
 			spec.Stdout, spec.Stderr = s.masks[0], s.masks[1]

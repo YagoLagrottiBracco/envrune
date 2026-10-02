@@ -44,6 +44,8 @@ var sessionCommands map[string]handler
 func init() {
 	sessionCommands = map[string]handler{
 		"set":      Workspace.set,
+		"render":   Workspace.render,
+		"check":    Workspace.check,
 		"generate": Workspace.generate,
 		"list":     Workspace.list,
 		"info":     Workspace.info,
@@ -156,13 +158,20 @@ func (w Workspace) projectPathOrEmpty() string {
 }
 
 func (w Workspace) set(argv []string) int {
-	a, err := parseArgs(argv, nil, nil, false)
+	a, err := parseArgs(argv, []string{"file"}, nil, false)
 	if err != nil || len(a.positional) != 1 {
-		return w.usageError("set <reference>")
+		return w.usageError("set <reference> [--file <path>]")
 	}
 	ref := a.positional[0]
-	value, err := readConfirmedValue(w.ReadSecret, "Secret value")
-	if err != nil {
+	var value []byte
+	if path, ok := a.options["file"]; ok {
+		// A certificate, a key, a credentials file: content with several
+		// lines, which the prompt refuses because a paste there is a mistake.
+		if value, err = readSecretFile(path); err != nil {
+			w.status().Error(err.Error())
+			return 1
+		}
+	} else if value, err = readConfirmedValue(w.ReadSecret, "Secret value"); err != nil {
 		return w.fail(err, "Secure interactive input is required.")
 	}
 	defer wipe(value)
@@ -508,7 +517,7 @@ func (w Workspace) run(argv []string) int {
 	noteUse(w.Session, projectPath, resolved)
 	w.status().Info(fmt.Sprintf("Starting %s with %d variables from %s.", a.rest[0], len(resolved.Pairs), resolved.Environment))
 	watch := &rotationWatch{secrets: projectPath, environment: a.options["env"], restart: a.flags["restart-on-rotate"], extra: proxied}
-	return w.runWatching(runner.Spec{Command: a.rest, Additions: append(resolved.Pairs, proxied...), Inherited: w.environ()}, !a.flags["no-redact"], watch)
+	return w.runWatching(runner.Spec{Command: a.rest, Additions: resolved.Pairs, Inherited: w.environ()}, !a.flags["no-redact"], watch)
 }
 
 // runChild runs spec attached to this terminal, masking the values it was
@@ -601,7 +610,7 @@ func (w Workspace) runNamed(projectPath string, config project.Config, name stri
 	}
 	w.status().Info(fmt.Sprintf("Running %s with %d variables from %s.", name, len(resolved.Pairs), sourceLabel(command, resolved.Environment)))
 	watch := &rotationWatch{secrets: secrets, environment: environment, restart: a.flags["restart-on-rotate"], extra: proxied}
-	return w.runWatching(runner.Spec{Command: words, Additions: append(resolved.Pairs, proxied...), Inherited: w.environ(), Dir: dir}, !a.flags["no-redact"], watch)
+	return w.runWatching(runner.Spec{Command: words, Additions: resolved.Pairs, Inherited: w.environ(), Dir: dir}, !a.flags["no-redact"], watch)
 }
 
 func (w Workspace) export(argv []string) int {

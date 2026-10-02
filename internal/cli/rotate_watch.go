@@ -20,18 +20,19 @@ import (
 // values. Tests shorten it.
 var rotationPollInterval = 30 * time.Second
 
-// rotationWatch lets a running command notice that a value it was started
-// with has been replaced: in the vault, in the team file, or in the cloud,
-// where it first asks the server whether anything moved. See
-// docs/managed-keys.md.
+// rotationWatch is what `run` and named commands know about the command
+// they start, beyond its values: where the values come from, so they can be
+// resolved again when one is replaced (docs/managed-keys.md), and what the
+// command gets besides them.
 type rotationWatch struct {
 	secrets     string // the envrune.yml that supplies the values
 	environment string
 	restart     bool // stop the command and start it again with the new values
-	// extra are variables the command gets that are not resolved from
-	// envrune.yml, such as the proxy's for sensitive secrets; they stay the
-	// same across restarts.
+	// extra are variables that are not resolved from envrune.yml, such as
+	// the proxy's for sensitive secrets; they stay the same across restarts.
 	extra []runner.Pair
+	// templates are files to fill in for this run only, as variable → path.
+	templates map[string]string
 }
 
 // changed resolves the command's values again and names the variables whose
@@ -49,10 +50,6 @@ func (w Workspace) changed(watch *rotationWatch, pairs []runner.Pair) (fresh []r
 	for _, p := range pairs {
 		current[p.Name] = p.Value
 	}
-	// Copies: the caller wipes what this returns.
-	for _, p := range watch.extra {
-		resolved.Pairs = append(resolved.Pairs, runner.Pair{Name: p.Name, Value: append([]byte(nil), p.Value...)})
-	}
 	for _, p := range resolved.Pairs {
 		if old, ok := current[p.Name]; !ok || !bytes.Equal(old, p.Value) {
 			names = append(names, p.Name)
@@ -69,10 +66,13 @@ func (w Workspace) changed(watch *rotationWatch, pairs []runner.Pair) (fresh []r
 	return resolved.Pairs, names
 }
 
-// runWatching runs spec like runChild and, while it runs, looks for replaced
-// values. Without watch.restart it says once that the command must be
-// restarted to use them. With it, it stops the command and starts it again
-// with the new values, for as long as the command keeps running.
+// runWatching runs spec, whose Additions are the values resolved from
+// envrune.yml. Before it starts the command it writes the files the project
+// asks for (stage) and adds watch.extra. While the command runs it looks for
+// replaced values: without watch.restart it says once that the command must
+// be restarted to use them; with it, it stops the command and starts it
+// again with the new values. It removes the files when the command ends,
+// also when it is interrupted.
 func (w Workspace) runWatching(spec runner.Spec, mask bool, watch *rotationWatch) int {
 	if watch == nil || w.Session == nil {
 		return w.runChild(spec, mask)
@@ -81,66 +81,39 @@ func (w Workspace) runWatching(spec runner.Spec, mask bool, watch *rotationWatch
 	// Files take concurrent writes; anything else gets one writer at a time.
 	var mu sync.Mutex
 	w.Stdout, w.Stderr = serialized(w.Stdout, &mu), serialized(w.Stderr, &mu)
-	if !watch.restart {
-		done := make(chan struct{})
-		// Nothing is said once the command has ended, even by a check that
-		// was under way.
-		var say sync.Mutex
-		ended := false
-		defer func() {
-			close(done)
-			say.Lock()
-			ended = true
-			say.Unlock()
-		}()
-		// Its own copy of the values: the caller wipes spec's when the
-		// command ends, which may be while this is still comparing.
-		started := make([]runner.Pair, len(spec.Additions))
-		for i, p := range spec.Additions {
-			started[i] = runner.Pair{Name: p.Name, Value: append([]byte(nil), p.Value...)}
-		}
-		go func() {
-			defer wipePairs(started)
-			ticker := time.NewTicker(rotationPollInterval)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-done:
-					return
-				case <-ticker.C:
-					if fresh, names := w.changed(watch, started); len(names) > 0 {
-						wipePairs(fresh)
-						say.Lock()
-						if !ended {
-							w.status().Warn(fmt.Sprintf("New values arrived for %s. Restart this command to use them, or start it with --restart-on-rotate.", strings.Join(names, ", ")))
-						}
-						say.Unlock()
-						return
-					}
-				}
-			}
-		}()
-		return w.runChild(spec, mask)
-	}
 
-	// Restarting needs to stop everything the command started, so it runs in
-	// its own process group, and this process passes Ctrl+C on to it.
+	// This process outlives an interrupt, to remove what it wrote. Without
+	// a group of its own the command receives the terminal's Ctrl+C itself;
+	// with one, and for a request to terminate, it is passed on.
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(signals)
 	ticker := time.NewTicker(rotationPollInterval)
 	defer ticker.Stop()
+
 	pairs := spec.Additions
 	var owned []runner.Pair // pairs from a later resolve, wiped here
 	defer func() { wipePairs(owned) }()
+	warned := false
 	for {
-		output := w.childOutput(pairs, mask)
+		staged, cleanup, err := w.stage(watch.secrets, pairs, watch.templates)
+		if err != nil {
+			// It names files and variables, never a value.
+			w.status().Error(sentence(strings.TrimRight(err.Error(), ".")))
+			return 1
+		}
+		given := append(staged, watch.extra...)
+		output := w.childOutput(given, mask)
 		run := spec
-		run.Additions, run.Group = pairs, true
+		run.Additions, run.Group = given, watch.restart
 		run.Stdin, run.Stdout, run.Stderr = os.Stdin, output.Stdout, output.Stderr
+		if !watch.restart {
+			run.Terminal = output.Terminal
+		}
 		process, err := runner.Start(run)
 		if err != nil {
 			output.Close()
+			cleanup()
 			var missing *runner.CommandNotFoundError
 			code := 1
 			switch {
@@ -162,31 +135,46 @@ func (w Workspace) runWatching(spec runner.Spec, mask bool, watch *rotationWatch
 			exited <- exit{code, err}
 		}()
 		var fresh []runner.Pair
+		stopping := false
 		for fresh == nil {
 			select {
 			case e := <-exited:
-				process.Stop() // what it left behind
+				if watch.restart {
+					process.Stop() // what it left behind
+				}
 				output.Close()
-				if e.err != nil {
+				cleanup()
+				if e.err != nil && !stopping {
 					w.status().Error(describe(e.err, "The command failed."))
 				}
 				return e.code
-			case <-signals:
-				process.Stop()
-				e := <-exited
-				output.Close()
-				return e.code
-			case <-ticker.C:
-				var names []string
-				fresh, names = w.changed(watch, pairs)
-				if len(names) > 0 {
-					w.status().Info(fmt.Sprintf("New values arrived for %s: restarting %s.", strings.Join(names, ", "), spec.Command[0]))
+			case sig := <-signals:
+				if watch.restart || sig == syscall.SIGTERM {
+					stopping = true
+					process.Stop()
 				}
+			case <-ticker.C:
+				if stopping || warned {
+					continue
+				}
+				next, names := w.changed(watch, pairs)
+				if len(names) == 0 {
+					continue
+				}
+				if watch.restart {
+					w.status().Info(fmt.Sprintf("New values arrived for %s: restarting %s.", strings.Join(names, ", "), spec.Command[0]))
+					fresh = next
+					continue
+				}
+				wipePairs(next)
+				warned = true
+				w.status().Warn(fmt.Sprintf("New values arrived for %s. Restart this command to use them, or start it with --restart-on-rotate.", strings.Join(names, ", ")))
 			}
 		}
 		process.Stop()
 		<-exited
 		output.Close()
+		cleanup()
 		wipePairs(owned)
 		pairs, owned = fresh, fresh
 	}
