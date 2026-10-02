@@ -164,7 +164,16 @@ func TestRunFindsBareCommandsOnPath(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("run = %d:\n%s", code, out)
 	}
-	expect(t, out, "API_KEY=sk-integration", "pwd="+dir)
+	expect(t, out, "API_KEY=sk-integration")
+	// The child reports the folder with symlinks resolved, and macOS keeps
+	// temporary folders behind one (/var is /private/var).
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "pwd="+dir) && !strings.Contains(out, "pwd="+resolved) {
+		t.Fatalf("output misses pwd=%s:\n%s", dir, out)
+	}
 }
 
 func TestRunReportsChildFailures(t *testing.T) {

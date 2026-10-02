@@ -46,9 +46,15 @@ func TestAgentPipeAdmitsOnlyTheCurrentUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sddl := sd.String()
-	if !strings.HasPrefix(sddl, "D:P") || strings.Count(sddl, "(A;") != 1 || !strings.Contains(sddl, ";;;"+me.String()+")") {
-		t.Fatalf("pipe DACL = %s, want a protected DACL for %s only", sddl, me)
+	// Windows prints well-known accounts by alias (LA for the built-in
+	// administrator, which CI runs as), so compare with the descriptor it
+	// builds for this user rather than with the SID's text.
+	want, err := windows.SecurityDescriptorFromString("D:P(A;;FA;;;" + me.String() + ")")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sddl := sd.String(); sddl != want.String() || strings.Count(sddl, "(A;") != 1 {
+		t.Fatalf("pipe DACL = %s, want %s: a protected DACL for %s only", sddl, want, me)
 	}
 }
 
