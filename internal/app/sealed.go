@@ -2,13 +2,29 @@ package app
 
 import "github.com/YagoLagrottiBracco/envrune/internal/cloud"
 
-// UseSealed gives the placeholders that stand for sensitive cloud secrets,
-// by "org/project/env/name", for as long as a command runs. References to
-// those secrets resolve to the placeholders.
-func (s *Session) UseSealed(placeholders map[string][]byte) {
+// Seal gives the placeholders that stand for sensitive cloud secrets, by
+// "org/project/env/name", for as long as a command runs: references to
+// those secrets resolve to the placeholders. It returns the function that
+// takes them back. Several commands, such as the services of `up`, may each
+// seal their own.
+func (s *Session) Seal(placeholders map[string][]byte) (unseal func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.sealed = placeholders
+	if s.sealed == nil {
+		s.sealed = map[string][]byte{}
+	}
+	for path, placeholder := range placeholders {
+		s.sealed[path] = placeholder
+	}
+	return func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for path, placeholder := range placeholders {
+			if string(s.sealed[path]) == string(placeholder) {
+				delete(s.sealed, path)
+			}
+		}
+	}
 }
 
 // sensitiveLocked tells sensitive secrets from missing ones, from what this

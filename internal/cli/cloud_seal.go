@@ -75,7 +75,7 @@ func (w Workspace) seal(projectPath, environment string) ([]runner.Pair, func(),
 		names = append(names, s.Path.Name)
 		hosts = append(hosts, s.Hosts...)
 	}
-	w.Session.UseSealed(placeholders)
+	unseal := w.Session.Seal(placeholders)
 	pairs := make([]runner.Pair, 0, len(variables))
 	for _, v := range variables {
 		pairs = append(pairs, runner.Pair{Name: v[0], Value: []byte(v[1])})
@@ -84,6 +84,6 @@ func (w Workspace) seal(projectPath, environment string) ([]runner.Pair, func(),
 		strings.Join(names, ", "), plural(len(names), "reaches", "reach"), strings.Join(hosts, ", "), plural(len(names), "it", "them")))
 	return pairs, func() {
 		proxy.Close()
-		w.Session.UseSealed(nil)
+		unseal()
 	}, nil
 }

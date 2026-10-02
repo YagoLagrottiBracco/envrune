@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -297,6 +298,15 @@ func (s mcpServer) run(ctx context.Context, projectPath, secretsPath, environmen
 		return nil, runResult{}, err
 	}
 	defer session.Close()
+	// Sensitive secrets work for an agent as for a person: the command gets
+	// a placeholder and its requests go through the server.
+	quiet := Workspace{Session: session, Stdout: io.Discard, Stderr: io.Discard}
+	quiet.freshen(secretsPath, environment)
+	proxied, unseal, err := quiet.seal(secretsPath, environment)
+	defer unseal()
+	if err != nil {
+		return nil, runResult{}, errors.New(sentence(strings.TrimRight(err.Error(), ".")))
+	}
 	resolved, err := session.Resolve(secretsPath, environment)
 	defer wipePairs(resolved.Pairs)
 	if err != nil {
@@ -331,7 +341,7 @@ func (s mcpServer) run(ctx context.Context, projectPath, secretsPath, environmen
 	started := time.Now()
 	process, err := runner.Start(runner.Spec{
 		Command:   words,
-		Additions: resolved.Pairs,
+		Additions: append(resolved.Pairs, proxied...),
 		Inherited: os.Environ(),
 		Dir:       dir,
 		Stdout:    masked,

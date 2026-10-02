@@ -203,9 +203,10 @@ service, which refuses it: nothing leaks, but nothing works. And requests
 that do not take the detour leave this computer directly, so a network that
 only lets traffic out through its own proxy is not supported yet.
 
-`run` and named commands set this up. `up`, `mcp`, and commands that would
-show a value (`env`, `export`, `copy`) refuse an environment's sensitive
-secrets, saying why; `doctor` counts them as present.
+`run`, named commands, `up`, `render`, `check`, and the MCP server set this
+up. Commands that would show a value (`env`, `export`, `copy`) refuse an
+environment's sensitive secrets, saying why; `doctor` counts them as
+present.
 
 ### What it costs: the server can read a sensitive secret
 
@@ -283,8 +284,8 @@ proxy identity.
 1. **Rotation that distributes itself**, and the record of use. These need
    no exception to zero-knowledge.
 2. **Sensitive secrets**: marking and storage, the server's forwarding, and
-   the loopback proxy in `run`. Client certificates, `up`, and networks
-   that require their own proxy come after.
+   the loopback proxy in `run`. Client certificates and networks that
+   require their own proxy come after.
 
 Decided along the way:
 

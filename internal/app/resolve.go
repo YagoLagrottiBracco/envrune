@@ -140,11 +140,11 @@ type sources struct {
 	teamErr  error
 	loaded   bool
 
-	cloud      CloudSource // nil without a cloud source
+	cloud CloudSource // nil without a cloud source
 	// sealed gives the placeholder of each sensitive secret a command may
 	// use, and sensitive tells that a secret is one, for the ones it may not.
-	sealed    map[string][]byte
-	sensitive func(cloud.Path) bool
+	sealed     map[string][]byte
+	sensitive  func(cloud.Path) bool
 	cloudEnvs  map[string]*cloudEnv
 	links      map[string]string // project path → cloud link, "" for none
 	restricted bool

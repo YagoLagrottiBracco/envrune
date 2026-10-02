@@ -153,3 +153,27 @@ func TestSensitiveSecretsAreNotShownOrExported(t *testing.T) {
 		}
 	}
 }
+
+func TestUpGivesEachServiceItsSensitiveSecrets(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil || runtime.GOOS == "windows" {
+		t.Skip("needs curl and a POSIX shell")
+	}
+	server := newSensitiveServer(t, []string{"api.example.com"})
+	config := sensitiveConfig + "commands:\n  pay:\n    run: " +
+		`"sh -c 'curl -sS --max-time 20 https://api.example.com/v1/me -H \"Authorization: Bearer $PAYMENTS_KEY\"'"` + "\n"
+	f := newFixture(t, config)
+	if err := f.session.UpdateCloudState(func([]byte) ([]byte, error) { return []byte(server.state), nil }); err != nil {
+		t.Fatal(err)
+	}
+	if code := f.run("up", "--no-redact"); code != 0 {
+		t.Fatalf("up = %d:\n%s", code, f.output())
+	}
+	if out := f.output(); !strings.Contains(out, `{"charged":true}`) || strings.Contains(out, "the-real-value") {
+		t.Fatalf("up output:\n%s", out)
+	}
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	if len(server.received) != 1 || !strings.Contains(server.received[0], "Bearer the-real-value") {
+		t.Fatalf("the service received %q", server.received)
+	}
+}

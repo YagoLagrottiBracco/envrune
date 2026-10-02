@@ -102,6 +102,7 @@ func (w Workspace) up(argv []string) int {
 	}
 	color := status.stdoutColor
 	resolved := map[string]app.Resolved{}
+	proxied := map[string][]runner.Pair{} // the proxy's variables, per envrune.yml and environment
 	defer func() {
 		for _, r := range resolved {
 			wipePairs(r.Pairs)
@@ -110,6 +111,7 @@ func (w Workspace) up(argv []string) int {
 	type plan struct {
 		name, dir string
 		secrets   string // the envrune.yml that supplies its values
+		key       string // secrets and environment, which services may share
 		command   project.Command
 		words     []string
 		resolved  app.Resolved
@@ -125,6 +127,15 @@ func (w Workspace) up(argv []string) int {
 		key := secrets + "\x00" + environment
 		r, ok := resolved[key]
 		if !ok {
+			// Sensitive secrets of its environment: a proxy for these
+			// services, closed when everything has stopped.
+			w.freshen(secrets, environment)
+			extra, stop, err := w.seal(secrets, environment)
+			defer stop()
+			if err != nil {
+				return w.cloudFail(fmt.Errorf("%s: %w", name, err))
+			}
+			proxied[key] = extra
 			if r, err = w.resolveCommand(name, command, secrets, environment); err != nil {
 				return 1
 			}
@@ -135,7 +146,7 @@ func (w Workspace) up(argv []string) int {
 			status.Error(fmt.Sprintf("commands.%s in envrune.yml has unbalanced quotes.", name))
 			return 2
 		}
-		plans = append(plans, plan{name, dir, secrets, command, words, r})
+		plans = append(plans, plan{name, dir, secrets, key, command, words, r})
 		if !w.maySkipMasking(r, a.flags["no-redact"]) {
 			return 1
 		}
@@ -173,6 +184,7 @@ func (w Workspace) up(argv []string) int {
 			return 1
 		}
 		defer cleanup()
+		given = append(given, proxied[p.key]...)
 		spec := runner.Spec{Command: p.words, Additions: given, Inherited: w.environ(), Dir: p.dir, Stdout: s.stdout, Stderr: s.stderr, Group: true}
 		if matcher != nil && !matcher.Empty() {
 			s.masks = []*redact.Writer{redact.NewWriter(s.stdout, matcher), redact.NewWriter(s.stderr, matcher)}
