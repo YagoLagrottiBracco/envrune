@@ -251,6 +251,19 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("a consumer's rotation was not refused on the device: %v", err)
 	}
 
+	// A device learns of a new value by asking for version numbers, and
+	// pulls only then.
+	if pulled := must[[]Path](t)(bob.Freshen(ctx, []Path{env}, 5*time.Second)); len(pulled) != 0 {
+		t.Fatalf("an up-to-date device pulled %v", pulled)
+	}
+	must[uint64](t)(alice.Set(ctx, prod, []byte("sk_live_3")))
+	if pulled := must[[]Path](t)(bob.Freshen(ctx, []Path{env}, 5*time.Second)); len(pulled) != 1 {
+		t.Fatalf("after a new value, freshen pulled %v", pulled)
+	}
+	if values, _, err := bob.Values(env); err != nil || string(values["stripe-key"]) != "sk_live_3" {
+		t.Fatalf("bob has %q: %v", values["stripe-key"], err)
+	}
+
 	// The offline limit is the admins' to set, and members' devices learn it.
 	if err := bob.SetOfflineDays(ctx, org, 30); err == nil {
 		t.Fatal("a consumer set the offline limit")

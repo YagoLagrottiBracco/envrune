@@ -481,6 +481,9 @@ func (w Workspace) run(argv []string) int {
 	if err != nil || len(a.rest) == 0 {
 		return w.usageError(usage)
 	}
+	if projectPath, err := w.findProject(); err == nil {
+		w.freshen(projectPath, a.options["env"])
+	}
 	_, resolved, err := w.resolve(a.options["env"])
 	defer wipePairs(resolved.Pairs)
 	if err != nil {
@@ -530,6 +533,7 @@ func (w Workspace) resolveCommand(name string, command project.Command, secrets,
 			return app.Resolved{}, err
 		}
 	}
+	w.freshen(secrets, environment)
 	resolved, err := w.Session.Resolve(secrets, environment)
 	if err != nil {
 		wipePairs(resolved.Pairs)

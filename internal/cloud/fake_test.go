@@ -39,6 +39,9 @@ type fakeServer struct {
 	wrapped  []*fakeWrapped
 	tokens   []*fakeToken
 	fetches  int
+	checks   int
+	// unreachable makes version checks answer too slowly to wait for.
+	unreachable bool
 	// fetched records who fetched each environment, as the audit log does:
 	// env id → "user:<id>" or "token:<id>". Guided rotation starts from it.
 	fetched   map[string]map[string]bool
@@ -134,6 +137,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 	route("GET /api/v1/machine/environment", f.machineEnvironment)
 	route("PATCH /api/v1/rotation/{task}/items/{secret}", f.patchRotationItem)
 	route("GET /api/v1/orgs/{org}/audit", f.getAudit)
+	route("GET /api/v1/versions", f.getVersions)
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
 	return f
@@ -780,6 +784,28 @@ func (f *fakeServer) patchRotationItem(user string, r *http.Request) (any, int, 
 		return nil, 204, nil
 	}
 	return fail(403, errForbidden)
+}
+
+// getVersions answers with version numbers only, to any member, and counts
+// the questions so tests can tell a check from a fetch.
+func (f *fakeServer) getVersions(user string, r *http.Request) (any, int, error) {
+	f.checks++
+	if f.unreachable {
+		time.Sleep(200 * time.Millisecond)
+	}
+	out := map[string]envVersions{}
+	for _, id := range r.URL.Query()["env"] {
+		e, p := f.envInfo(id)
+		if e == nil || f.role(p.org, user).Role == "" || f.role(p.org, user).Role == "removed" {
+			continue
+		}
+		v := envVersions{Epoch: e.epoch, Secrets: map[string]uint64{}}
+		for _, s := range f.current(id) {
+			v.Secrets[s.Name] = s.Version
+		}
+		out[id] = v
+	}
+	return out, 200, nil
 }
 
 // ---------------------------------------------------------------- audit
