@@ -285,8 +285,8 @@ published on the [releases page](https://github.com/YagoLagrottiBracco/envrune/r
 Releases are built by GitHub Actions whenever a `v*` tag is pushed:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 Treat `main` as active development.

@@ -6,6 +6,8 @@ All notable changes to EnvRune are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-03
+
 ### Upgrading
 
 - **The vault file format is now version 2.** The first command that opens a
@@ -223,5 +225,6 @@ All notable changes to EnvRune are listed here. The format follows
 
 First release.
 
-[Unreleased]: https://github.com/YagoLagrottiBracco/envrune/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/YagoLagrottiBracco/envrune/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/YagoLagrottiBracco/envrune/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/YagoLagrottiBracco/envrune/releases/tag/v0.1.0
