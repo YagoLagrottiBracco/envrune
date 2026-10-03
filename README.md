@@ -285,9 +285,14 @@ published on the [releases page](https://github.com/YagoLagrottiBracco/envrune/r
 Releases are built by GitHub Actions whenever a `v*` tag is pushed:
 
 ```sh
-git tag v0.2.0
-git push origin v0.2.0
+git tag v1.0.0
+git push origin v1.0.0
 ```
+
+Versions follow [Semantic Versioning](https://semver.org/). Counting the
+commits since the last release, each fix raises the patch number and each
+new feature the minor number; the major number changes only when something
+that worked before stops working.
 
 Treat `main` as active development.
 

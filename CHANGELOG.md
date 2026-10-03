@@ -6,6 +6,12 @@ All notable changes to EnvRune are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-03
+
+The launch release. It contains what 0.2.0 does, under the number EnvRune
+counts from now on: each fix raises the third number, each new feature the
+second, and only a change that breaks what worked before raises the first.
+
 ## [0.2.0] - 2026-10-03
 
 ### Upgrading
@@ -225,6 +231,7 @@ All notable changes to EnvRune are listed here. The format follows
 
 First release.
 
-[Unreleased]: https://github.com/YagoLagrottiBracco/envrune/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/YagoLagrottiBracco/envrune/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/YagoLagrottiBracco/envrune/compare/v0.2.0...v1.0.0
 [0.2.0]: https://github.com/YagoLagrottiBracco/envrune/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/YagoLagrottiBracco/envrune/releases/tag/v0.1.0

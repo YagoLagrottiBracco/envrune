@@ -41,7 +41,7 @@ first version goes in by hand:
 
 ```powershell
 winget install Microsoft.WingetCreate
-wingetcreate new https://github.com/YagoLagrottiBracco/envrune/releases/download/v0.2.0/envrune_0.2.0_windows_setup.exe
+wingetcreate new https://github.com/YagoLagrottiBracco/envrune/releases/download/v1.0.0/envrune_1.0.0_windows_setup.exe
 ```
 
 Use the identifier `YagoLagrottiBracco.EnvRune`. After that pull request is
