@@ -173,9 +173,8 @@ Supabase after your members have their accounts.
   the files outside the server, so a change to the log can be found. See
   [cloud.md](cloud.md#audit-log).
 - **Upgrading.** Rebuild the image from the new version and apply any new
-  files in `cloud/supabase/migrations`. Until the first release, the first
-  migration may still change in place: upgrading a pre-release server means
-  starting from an empty database.
+  files in `cloud/supabase/migrations`. A released file never changes:
+  the schema only grows by new files, so a database is upgraded in place.
 
 ## What self-hosting does not change
 
