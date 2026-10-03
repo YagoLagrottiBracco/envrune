@@ -82,9 +82,10 @@ jobs:
           New-Item -ItemType Directory -Force build, out | Out-Null
           $env:CGO_ENABLED = '0'
           $env:GOOS = 'windows'
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
           foreach ($arch in 'amd64', 'arm64') {
             $env:GOARCH = $arch
-            go build -trimpath "-ldflags=-s -w" -o "build/envrune_$arch.exe" ./cmd/envrune
+            go build -trimpath "-ldflags=-s -w -X github.com/YagoLagrottiBracco/envrune/internal/cli.Version=$version" -o "build/envrune_$arch.exe" ./cmd/envrune
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
           }
 
