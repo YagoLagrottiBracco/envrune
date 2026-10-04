@@ -128,6 +128,12 @@ started without one of the three variables keeps running: its pages say
 which variables are missing, by name, and the API answers 503, so
 `envrune login` reports that the server is not configured yet.
 
+A server whose database lacks a table or function it expects, because the
+files in `cloud/supabase/migrations` were not all applied, also answers
+503, and the CLI says that the database is missing them. Any other failure
+is a 500 with the database's error code; the full error is in the
+container's log.
+
 ## 4. HTTPS
 
 The container listens on `127.0.0.1:3000`. Put a reverse proxy with a

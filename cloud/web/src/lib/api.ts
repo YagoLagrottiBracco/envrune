@@ -3,6 +3,7 @@ import { after } from "next/server";
 import { deliverWebhooks } from "./deliver";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { missing } from "./env";
+import { answerFor } from "./pgerror";
 import { bearerClient } from "./supabase/server";
 
 // Helpers for the /api/v1 route handlers the CLI calls.
@@ -16,20 +17,12 @@ export class ApiError extends Error {
   }
 }
 
-/** The errcodes the schema raises, as HTTP statuses. */
-const statuses: Record<string, number> = {
-  "28000": 401, // sign in first
-  "42501": 403, // not allowed
-  P0002: 404, // not found
-  "23505": 409, // already exists
-  "40001": 409, // stale version or epoch: sync and retry
-  "22023": 400, // invalid value
-  "23514": 400, // check constraint
-  "22P02": 400, // invalid input syntax
-};
-
 export function fromPostgres(error: PostgrestError): ApiError {
-  return new ApiError(statuses[error.code] ?? 500, statuses[error.code] ? error.message : "the request failed");
+  const answer = answerFor(error.code, error.message);
+  if (answer.status >= 500) {
+    console.error(`database error ${error.code}: ${error.message}`);
+  }
+  return new ApiError(answer.status, answer.message);
 }
 
 /** Wraps a handler: turns ApiError and Postgres errors into JSON responses. */
