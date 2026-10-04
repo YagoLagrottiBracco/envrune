@@ -6,6 +6,8 @@ All notable changes to EnvRune are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-04
+
 ### Fixed
 
 - `envrune login` finishes. The panel's "Sign in the CLI" page tried to
@@ -237,7 +239,8 @@ second, and only a change that breaks what worked before raises the first.
 
 First release.
 
-[Unreleased]: https://github.com/YagoLagrottiBracco/envrune/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/YagoLagrottiBracco/envrune/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/YagoLagrottiBracco/envrune/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/YagoLagrottiBracco/envrune/compare/v0.2.0...v1.0.0
 [0.2.0]: https://github.com/YagoLagrottiBracco/envrune/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/YagoLagrottiBracco/envrune/releases/tag/v0.1.0
