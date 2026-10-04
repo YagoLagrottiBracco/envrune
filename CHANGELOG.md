@@ -6,6 +6,19 @@ All notable changes to EnvRune are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `envrune --verbose <command>`, or `ENVRUNE_VERBOSE=1`, prints each
+  request to EnvRune Cloud with its answer's status and how long it took,
+  to find where a failing command stopped. It never prints a header, a
+  body, or a value.
+
+### Fixed
+
+- A server whose database does not have the schema says so: the CLI used to
+  print only "The request failed." when the migrations had not been applied.
+  Other server failures now name the request and the database's error code.
+
 ## [1.0.1] - 2026-10-04
 
 ### Fixed

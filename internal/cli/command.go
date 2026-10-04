@@ -98,8 +98,12 @@ EnvRune Cloud (end-to-end encrypted sharing; run envrune cloud for details)
   cloud token create|revoke   Machine tokens for CI
   cloud audit export|verify   The audit log, checked for edits and gaps
 
+envrune --verbose <command>, or ENVRUNE_VERBOSE=1, prints each request to
+EnvRune Cloud and its answer's status: never a header, a body, or a value.
+
 Environment variables: ENVRUNE_VAULT, ENVRUNE_PASSWORD_FILE, ENVRUNE_PASSWORD,
-ENVRUNE_IDENTITY, ENVRUNE_TOKEN, ENVRUNE_CLOUD_SERVER, NO_COLOR.
+ENVRUNE_IDENTITY, ENVRUNE_TOKEN, ENVRUNE_CLOUD_SERVER, ENVRUNE_VERBOSE,
+NO_COLOR.
 `
 
 var builtinCommands = map[string]bool{
@@ -110,6 +114,13 @@ var builtinCommands = map[string]bool{
 func isBuiltin(name string) bool { return builtinCommands[name] || isSessionCommand(name) }
 
 func Execute(args []string, stdout, stderr io.Writer) int {
+	verbose := os.Getenv("ENVRUNE_VERBOSE") != ""
+	if len(args) > 0 && args[0] == "--verbose" {
+		verbose, args = true, args[1:]
+	}
+	if verbose {
+		traceCloud(stderr)
+	}
 	if len(args) < 1 {
 		return executeOnboarding(stdout, stderr)
 	}

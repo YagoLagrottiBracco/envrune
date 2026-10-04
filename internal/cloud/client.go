@@ -22,9 +22,24 @@ var DefaultServer = ""
 type APIError struct {
 	Status  int
 	Message string
+	// The request that was refused, such as "GET /api/v1/account".
+	Request string
 }
 
-func (e *APIError) Error() string { return e.Message }
+// Error is the server's message. A failure of the server itself also names
+// the request, since the message alone ("the request failed") says nothing
+// to whoever has to look it up in the server's log.
+func (e *APIError) Error() string {
+	if e.Status >= http.StatusInternalServerError && e.Request != "" {
+		return fmt.Sprintf("%s (%s answered %d)", e.Message, e.Request, e.Status)
+	}
+	return e.Message
+}
+
+// Trace, when set, is told about every request to the server after it
+// ends: what was asked, the status (0 if no answer came), how long it took,
+// and the error if it failed. It never gets a header or a body.
+var Trace func(request string, status int, elapsed time.Duration, err error)
 
 var ErrSignedOut = errors.New("not signed in to EnvRune Cloud; run `envrune login`")
 
@@ -102,6 +117,10 @@ func (c *Client) send(ctx context.Context, method, path string, query url.Values
 	if err != nil {
 		return err
 	}
+	request, started, status := method+" "+req.URL.Path, time.Now(), 0
+	if Trace != nil {
+		defer func() { Trace(request, status, time.Since(started), err) }()
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	if authorization != "" {
@@ -109,9 +128,11 @@ func (c *Client) send(ctx context.Context, method, path string, query url.Values
 	}
 	resp, err := c.http().Do(req)
 	if err != nil {
-		return fmt.Errorf("could not reach %s: %w", c.Server, err)
+		err = fmt.Errorf("could not reach %s: %w", c.Server, err)
+		return err
 	}
 	defer resp.Body.Close()
+	status = resp.StatusCode
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
 	defer wipe(raw)
 	if err != nil {
@@ -124,12 +145,13 @@ func (c *Client) send(ctx context.Context, method, path string, query url.Values
 		if json.Unmarshal(raw, &failure) != nil || failure.Error == "" {
 			failure.Error = fmt.Sprintf("the server answered %s", resp.Status)
 		}
-		return &APIError{Status: resp.StatusCode, Message: failure.Error}
+		err = &APIError{Status: resp.StatusCode, Message: failure.Error, Request: request}
+		return err
 	}
 	if out != nil && len(raw) > 0 {
-		return json.Unmarshal(raw, out)
+		err = json.Unmarshal(raw, out)
 	}
-	return nil
+	return err
 }
 
 // Health checks that the server is an EnvRune Cloud server.

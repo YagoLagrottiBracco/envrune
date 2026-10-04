@@ -37,6 +37,17 @@ envrune cloud device approve <id>   # check that both screens show the same fing
 Then run `envrune cloud init` on the new device again to finish.
 `envrune cloud whoami` shows your account and device fingerprints.
 
+If a command fails and the message does not say why, run it with
+`--verbose` right after `envrune`, or with `ENVRUNE_VERBOSE=1`:
+
+```sh
+envrune --verbose cloud init
+```
+
+It prints each request to the server and its answer's status, never a
+header, a body, or a value. An answer of 500 or more is the server's
+problem; whoever runs it finds the cause in the server's log.
+
 ## Organizations, projects, and members
 
 ```sh
