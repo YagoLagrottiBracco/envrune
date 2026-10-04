@@ -6,6 +6,8 @@ All notable changes to EnvRune are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-04
+
 ### Added
 
 - `envrune --verbose <command>`, or `ENVRUNE_VERBOSE=1`, prints each
@@ -252,7 +254,8 @@ second, and only a change that breaks what worked before raises the first.
 
 First release.
 
-[Unreleased]: https://github.com/YagoLagrottiBracco/envrune/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/YagoLagrottiBracco/envrune/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/YagoLagrottiBracco/envrune/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/YagoLagrottiBracco/envrune/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/YagoLagrottiBracco/envrune/compare/v0.2.0...v1.0.0
 [0.2.0]: https://github.com/YagoLagrottiBracco/envrune/compare/v0.1.0...v0.2.0
