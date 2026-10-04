@@ -6,6 +6,12 @@ All notable changes to EnvRune are listed here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `envrune login` finishes. The panel's "Sign in the CLI" page tried to
+  send the new session to the CLI before the form holding it was on the
+  page, so nothing was sent and the command kept waiting.
+
 ## [1.0.0] - 2026-10-03
 
 The launch release. It contains what 0.2.0 does, under the number EnvRune

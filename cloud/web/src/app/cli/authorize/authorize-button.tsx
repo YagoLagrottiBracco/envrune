@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { authorizeCli, type CliSession } from "./actions";
 
 export function AuthorizeButton({ port, state }: { port: number; state: string }) {
@@ -8,6 +8,14 @@ export function AuthorizeButton({ port, state }: { port: number; state: string }
   const [message, setMessage] = useState("");
   const [session, setSession] = useState<CliSession | null>(null);
   const form = useRef<HTMLFormElement>(null);
+
+  // Post the session to the CLI on this computer. In an effect, because the
+  // form holding it is on the page only after the render the session causes.
+  useEffect(() => {
+    if (session) {
+      form.current?.submit();
+    }
+  }, [session]);
 
   async function authorize() {
     setStatus("working");
@@ -19,8 +27,6 @@ export function AuthorizeButton({ port, state }: { port: number; state: string }
     }
     setSession(result);
     setStatus("done");
-    // Render the hidden fields, then post them to the CLI on this computer.
-    setTimeout(() => form.current?.submit(), 0);
   }
 
   return (
@@ -35,6 +41,9 @@ export function AuthorizeButton({ port, state }: { port: number; state: string }
           <input type="hidden" name="access_token" value={session.access_token} />
           <input type="hidden" name="refresh_token" value={session.refresh_token} />
           <input type="hidden" name="expires_at" value={session.expires_at} />
+          <p className="mt-3 text-sm">
+            Sending the session to the CLI. If this page stays, <button type="submit" className="underline">send it again</button>.
+          </p>
         </form>
       )}
     </div>
