@@ -36,7 +36,8 @@ These are read when a request needs them, not inlined by the build
 ```sh
 npm run lint
 npm test          # signing, against vectors shared with the Go client
-../e2e.sh         # the CLI's client against this server and the database
+../e2e.sh         # the CLI's client against this server and the database,
+                  # and, where Chrome is installed, `envrune login` in a browser
 ```
 
 ## Deploy

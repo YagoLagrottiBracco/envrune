@@ -11,7 +11,7 @@ supabase() {
 
 # Only the services the API uses: Postgres, Auth, and the REST gateway.
 supabase start -x studio,imgproxy,storage-api,realtime,edge-runtime,logflare,vector,supavisor,postgres-meta >/dev/null
-eval "$(supabase status -o env | grep -E '^(API_URL|PUBLISHABLE_KEY|SECRET_KEY)=')"
+eval "$(supabase status -o env | grep -E '^(API_URL|PUBLISHABLE_KEY|SECRET_KEY|MAILPIT_URL|INBUCKET_URL)=')"
 
 port="${ENVRUNE_E2E_PORT:-3000}"
 cd web
@@ -36,8 +36,21 @@ for _ in $(seq 60); do
 done
 cd ../..
 
+# `envrune login` in a real browser, where one is installed: the sign-in
+# form, the emailed link, and the page that hands the session to the CLI.
+# The emailed link comes back to Supabase's site URL, which is port 3000.
+browser=""
+for candidate in google-chrome google-chrome-stable; do
+  if [ -z "$browser" ] && type -P "$candidate" >/dev/null && [ "$port" = 3000 ]; then
+    browser="$PWD/cloud/web/e2e/login.mjs"
+  fi
+done
+[ -n "$browser" ] || echo "no Chrome on this machine, or not port 3000: the browser sign-in test is skipped"
+
 ENVRUNE_E2E_SERVER="http://127.0.0.1:$port" \
 ENVRUNE_E2E_SUPABASE_URL="$API_URL" \
 ENVRUNE_E2E_SUPABASE_SECRET_KEY="$SECRET_KEY" \
 ENVRUNE_E2E_SUPABASE_PUBLISHABLE_KEY="$PUBLISHABLE_KEY" \
-  go test -tags e2e -count=1 -run TestEndToEnd -v ./internal/cloud/ || { echo "--- API server log"; tail -50 "$log"; exit 1; }
+ENVRUNE_E2E_LOGIN_SCRIPT="$browser" \
+ENVRUNE_E2E_MAIL_URL="${MAILPIT_URL:-${INBUCKET_URL:-http://127.0.0.1:54324}}" \
+  go test -tags e2e -count=1 -run 'TestEndToEnd|TestBrowserLogin' -v ./internal/cloud/ || { echo "--- API server log"; tail -50 "$log"; exit 1; }

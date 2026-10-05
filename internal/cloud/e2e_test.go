@@ -8,6 +8,7 @@ package cloud
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -100,6 +102,53 @@ func read(t *testing.T, s *Service, path Path) (string, string) {
 	values, role, err := s.Values(path)
 	ok(t, err)
 	return string(values[path.Name]), role
+}
+
+// TestBrowserLogin runs `envrune login` as a person does: the client waits
+// on this computer while a real browser signs in on the panel, with the link
+// Supabase emails, and presses the button that sends the session back. The
+// rest of the suite signs in through the API, which never opens a page.
+func TestBrowserLogin(t *testing.T) {
+	e := newE2E(t)
+	script := os.Getenv("ENVRUNE_E2E_LOGIN_SCRIPT")
+	if script == "" {
+		t.Skip("set ENVRUNE_E2E_LOGIN_SCRIPT to cloud/web/e2e/login.mjs, or run cloud/e2e.sh where Chrome is installed")
+	}
+	email := "browser-" + e.suffix + "@example.com"
+	loginCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+
+	var output bytes.Buffer
+	finished := make(chan error, 1)
+	opened := false
+	s := &Service{Store: &memStore{}}
+	st, err := s.Login(loginCtx, e.server, func(address string) {
+		opened = true
+		browser := exec.CommandContext(loginCtx, "node", script, address, email)
+		browser.Stdout, browser.Stderr = &output, &output
+		// When the browser gives up, so does the client waiting for it.
+		go func() {
+			err := browser.Run()
+			if err != nil {
+				cancel()
+			}
+			finished <- err
+		}()
+	})
+	if !opened {
+		t.Fatalf("login failed before the browser was opened: %v", err)
+	}
+	browserErr := <-finished
+	if err != nil || browserErr != nil {
+		t.Fatalf("login: %v; the browser: %v\n%s", err, browserErr, output.String())
+	}
+	if st.Email != email || st.Server != e.server || st.Tokens.AccessToken == "" {
+		t.Fatalf("signed in as %q on %q", st.Email, st.Server)
+	}
+	// The session the browser handed over is a working one.
+	if setup := must[*SetupResult](t)(s.Setup(ctx, "browser-device")); !setup.Created {
+		t.Fatalf("the new account was not created: %+v", setup)
+	}
 }
 
 func TestEndToEnd(t *testing.T) {
