@@ -229,6 +229,7 @@ output is already plain.
 | [Pulling and pushing with services](docs/providers.md) | Bring values in from Vercel or 1Password; send them to Vercel or GitHub Actions. |
 | [Teams and CI](docs/teams-and-ci.md) | Share secrets with a team file and give pipelines access. |
 | [EnvRune Cloud](docs/cloud.md) | Share secrets with roles, CI tokens, guided rotation, and an audit log, end-to-end encrypted. |
+| [Your first team](docs/first-team.md) | Two people share a secret for the first time, step by step: fingerprints, roles, a changed value, and someone leaving. |
 | [Self-hosting EnvRune Cloud](docs/self-hosting.md) | Run the server on your own infrastructure with Docker. |
 | [Running a team on EnvRune Cloud](docs/cloud-operations.md) | A lost device, a compromised project, rules about who may fetch, notifications, and access for a limited time. |
 | [Keys managed by their owner](docs/managed-keys.md) | See how a replaced value distributes itself, and how a sensitive secret is used without reaching a machine. |

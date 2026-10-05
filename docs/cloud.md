@@ -58,6 +58,9 @@ problem; whoever runs it finds the cause in the server's log.
 
 ## Organizations, projects, and members
 
+[first-team.md](first-team.md) walks two people through this section and
+the next ones, step by step.
+
 ```sh
 envrune cloud org create acme
 envrune cloud project create acme shop
