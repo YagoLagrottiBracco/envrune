@@ -20,6 +20,9 @@ All notable changes to EnvRune are listed here. The format follows
 
 ### Fixed
 
+- Signing in to a self-hosted server works behind a reverse proxy and in the
+  Docker image: after the emailed link, the server sent the browser to
+  `localhost` instead of back to itself.
 - Commands that use a sensitive secret work on a network that only lets
   traffic out through its own proxy: the requests `envrune` does not read
   leave through that proxy, as they would have without `envrune`.

@@ -55,10 +55,10 @@ async function signInLink() {
 }
 
 const browser = await chromium.launch({ channel: process.env.ENVRUNE_E2E_BROWSER_CHANNEL ?? "chrome" });
+const page = await (await browser.newContext()).newPage();
+page.setDefaultTimeout(30_000);
+let step = "opening the page the CLI printed";
 try {
-  const page = await (await browser.newContext()).newPage();
-  page.setDefaultTimeout(30_000);
-
   // Not signed in yet: the page the CLI opened leads to the sign-in form.
   await page.goto(address);
   await page.waitForURL(/\/login\?next=/);
@@ -67,16 +67,20 @@ try {
   await page.getByText(`Check ${email} for a sign-in link.`).waitFor();
 
   // The link signs this browser in and comes back to the CLI's page.
+  step = "following the emailed link back to the CLI's page";
   await page.goto(await signInLink());
   await page.waitForURL(/\/cli\/authorize\?/);
   await page.getByText(email).waitFor();
 
   // The press that 1.0.0 lost: the session must reach the CLI's listener.
+  step = "pressing the button that sends the session to the CLI";
   await page.getByRole("button", { name: "Sign in the CLI" }).click();
   await page.waitForURL(/^http:\/\/127\.0\.0\.1:\d+\/callback$/);
   await page.getByText("The EnvRune CLI is signed in.").waitFor();
   console.log("the browser handed the session to the CLI");
 } catch (error) {
+  // Where it stopped, without the query: it holds the sign-in code.
+  console.error(`failed while ${step}, at ${page.url().split("?")[0]}`);
   console.error(String(error));
   process.exitCode = 1;
 } finally {
