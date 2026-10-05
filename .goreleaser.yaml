@@ -53,12 +53,14 @@ nfpms:
 # Package-manager manifests are pushed to their own repositories with the
 # PACKAGES_TOKEN secret (a token with contents:write on both repositories).
 # Without it, they are generated into dist/ and not pushed.
+# GoReleaser takes a token only as {{ .Env.NAME }}, with nothing around it;
+# the release workflow always defines the variable, empty without the secret.
 homebrew_casks:
   - name: envrune
     repository:
       owner: YagoLagrottiBracco
       name: homebrew-tap
-      token: '{{ index .Env "PACKAGES_TOKEN" }}'
+      token: "{{ .Env.PACKAGES_TOKEN }}"
     skip_upload: '{{ if index .Env "PACKAGES_TOKEN" }}auto{{ else }}true{{ end }}'
     homepage: https://github.com/YagoLagrottiBracco/envrune
     description: A deliberate command-line workspace for encrypted environment variables.
@@ -77,7 +79,7 @@ scoops:
     repository:
       owner: YagoLagrottiBracco
       name: scoop-bucket
-      token: '{{ index .Env "PACKAGES_TOKEN" }}'
+      token: "{{ .Env.PACKAGES_TOKEN }}"
     skip_upload: '{{ if index .Env "PACKAGES_TOKEN" }}auto{{ else }}true{{ end }}'
     homepage: https://github.com/YagoLagrottiBracco/envrune
     description: A deliberate command-line workspace for encrypted environment variables.
