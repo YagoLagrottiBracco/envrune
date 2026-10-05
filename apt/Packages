@@ -1,0 +1,30 @@
+Package: envrune
+Architecture: amd64
+Version: 1.1.0
+Priority: optional
+Maintainer: Yago Lagrotti Bracco
+Installed-Size: 13904
+Filename: ./envrune_1.1.0_linux_amd64.deb
+Size: 5623850
+MD5sum: 10ac188453d2256cf8fb839732932009
+SHA1: 2e1e2fe21728cb83e8c3df04540c05044636158c
+SHA256: f43246b36e8de6f2fc57513a550f14eb4aa5cd3a0f91148107a95bb73893335b
+SHA512: c5af90a7feb856928db42695d7e73aca72571db39dcaa8c18fad00e5068d014954bcc84e8a543429c860658251f6213e32706485bfb64ec98f611275e41eafb7
+Homepage: https://github.com/YagoLagrottiBracco/envrune
+Description: A deliberate command-line workspace for encrypted environment variables.
+
+Package: envrune
+Architecture: arm64
+Version: 1.1.0
+Priority: optional
+Maintainer: Yago Lagrotti Bracco
+Installed-Size: 12736
+Filename: ./envrune_1.1.0_linux_arm64.deb
+Size: 5056408
+MD5sum: b8867c432fed7c74e1fe5caa2536c915
+SHA1: b39c0010d4be87629d24496e28509148e10499bf
+SHA256: d997efe7d34aa25628041d9160b3995b8e9fc1d916316461771a8620b2260133
+SHA512: 581c3160a05d2c0188d1f9dae81e2edf47b1fe3fc67581a3056a8004326382df2835b211ad5c84411b5789fb3007ecd9d7ff10ecb66db1bab232702f1438ae24
+Homepage: https://github.com/YagoLagrottiBracco/envrune
+Description: A deliberate command-line workspace for encrypted environment variables.
+
