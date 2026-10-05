@@ -14,7 +14,10 @@ lack of one.
 
 ## Homebrew and Scoop
 
-1. Create two empty public repositories: `homebrew-tap` and `scoop-bucket`.
+1. Create two public repositories, each with a README so that it has a
+   first commit: `homebrew-tap` and `scoop-bucket`. Both must exist: one
+   token turns both channels on, and a release fails if it cannot push to
+   one of them.
 2. Create a fine-grained token with **Contents: read and write** on both, and
    store it as the `PACKAGES_TOKEN` secret of the `envrune` repository.
 
@@ -41,12 +44,20 @@ first version goes in by hand:
 
 ```powershell
 winget install Microsoft.WingetCreate
-wingetcreate new https://github.com/YagoLagrottiBracco/envrune/releases/download/v1.0.0/envrune_1.0.0_windows_setup.exe
+wingetcreate new https://github.com/YagoLagrottiBracco/envrune/releases/download/v<version>/envrune_<version>_windows_setup.exe
 ```
 
-Use the identifier `YagoLagrottiBracco.EnvRune`. After that pull request is
-merged, create a classic token with `public_repo`, store it as
-`WINGET_TOKEN`, and later releases open their pull request automatically.
+Use the identifier `YagoLagrottiBracco.EnvRune`, and sign Microsoft's
+contributor agreement when its bot asks in the pull request. wingetcreate
+reads the setup program, which is a 32-bit executable, and declares
+`Architecture: x86`; the installer refuses 32-bit Windows, so validation
+fails with `Validation-Shell-Execute`. Before submitting, or in the pull
+request's branch, replace that entry with one for `x64` and one for `arm64`
+with the same URL and hash, and add `Scope: user`.
+
+After that pull request is merged, create a classic token with
+`public_repo`, store it as `WINGET_TOKEN`, and later releases open their
+pull request automatically.
 Users install with `winget install YagoLagrottiBracco.EnvRune`.
 
 ## apt

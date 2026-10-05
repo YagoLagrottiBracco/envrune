@@ -65,13 +65,23 @@ Download the installer for your system from the
 | **Debian / Ubuntu** | `envrune_<version>_linux_<arch>.deb` | `sudo apt install ./envrune_<version>_linux_amd64.deb` |
 | **Fedora / RHEL** | `envrune_<version>_linux_<arch>.rpm` | `sudo dnf install ./envrune_<version>_linux_amd64.rpm` |
 
-Package managers, once they are set up for the project (see
-[Distribution](docs/distribution.md)):
+Or with a package manager:
 
 ```sh
 brew install --cask yagolagrottibracco/tap/envrune       # macOS
-winget install YagoLagrottiBracco.EnvRune                # Windows
 scoop bucket add envrune https://github.com/YagoLagrottiBracco/scoop-bucket && scoop install envrune
+winget install YagoLagrottiBracco.EnvRune                # Windows, once Microsoft accepts the package
+```
+
+On Debian and Ubuntu, add EnvRune's apt repository once, and `apt upgrade`
+keeps it up to date:
+
+```sh
+curl -fsSL https://yagolagrottibracco.github.io/envrune/apt/envrune.gpg \
+  | sudo tee /usr/share/keyrings/envrune.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/envrune.gpg] https://yagolagrottibracco.github.io/envrune/apt ./" \
+  | sudo tee /etc/apt/sources.list.d/envrune.list
+sudo apt update && sudo apt install envrune
 ```
 
 On macOS or Linux you can also install with one command:
