@@ -6,6 +6,12 @@ All notable changes to EnvRune are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `envrune version` prints the version of the installed command, and
+  `envrune version --check` asks GitHub whether a newer release exists.
+  EnvRune never looks for updates by itself.
+
 ## [1.2.0] - 2026-10-05
 
 ### Added

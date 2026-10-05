@@ -98,6 +98,9 @@ EnvRune Cloud (end-to-end encrypted sharing; run envrune cloud for details)
   cloud token create|revoke   Machine tokens for CI
   cloud audit export|verify   The audit log, checked for edits and gaps
 
+envrune version prints this version; with --check it asks GitHub whether a
+newer one exists, which EnvRune never does by itself.
+
 envrune --verbose <command>, or ENVRUNE_VERBOSE=1, prints each request to
 EnvRune Cloud and its answer's status: never a header, a body, or a value.
 
@@ -107,7 +110,7 @@ NO_COLOR.
 `
 
 var builtinCommands = map[string]bool{
-	"help": true, "init": true, "project": true, "shell": true, "lock": true, "status": true,
+	"help": true, "version": true, "init": true, "project": true, "shell": true, "lock": true, "status": true,
 	"keychain": true, "recover": true, "backup": true, "restore": true, "hook": true, "guard": true, "mcp": true, "inspect": true,
 }
 
@@ -130,6 +133,8 @@ func Execute(args []string, stdout, stderr io.Writer) int {
 	case "help", "--help", "-h":
 		fmt.Fprint(stdout, helpText)
 		return 0
+	case "version", "--version":
+		return executeVersion(args[1:], stdout, status)
 	case "shell":
 		if len(args) != 1 {
 			fmt.Fprintln(stderr, "usage: envrune shell")
