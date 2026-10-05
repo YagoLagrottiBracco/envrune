@@ -212,9 +212,17 @@ program would have used (`HTTPS_PROXY`, `HTTP_PROXY`, and `NO_PROXY` as
 `envrune` itself was started with), with its user and password if the
 address has them, and so does `envrune`'s own connection to the server.
 
-One limit follows. A program that ignores those variables cannot be
-redirected this way, and its requests would carry the placeholder to the
-service, which refuses it: nothing leaks, but nothing works.
+A program that ignores those variables cannot be redirected this way, and
+its requests would carry the placeholder to the service, which refuses it:
+nothing leaks, but nothing works. Such a program is told where the service
+is instead. `forward:` in `envrune.yml` names a variable and the service's
+address ([project-file.md](project-file.md#where-a-service-is)); when a
+sensitive secret allows that host, the variable holds an address on the
+loopback interface that stands for the service for the length of the
+command. Requests to it travel in plain HTTP, which never leaves this
+computer, and are forwarded exactly as the ones the proxy reads. The
+address answers only to its own name, so a page in a browser that reaches
+it under another one gets nothing.
 
 `run`, named commands, `up`, `render`, `check`, and the MCP server set this
 up. Commands that would show a value (`env`, `export`, `copy`) refuse an

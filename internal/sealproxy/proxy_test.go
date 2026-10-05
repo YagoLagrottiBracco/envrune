@@ -296,3 +296,56 @@ func TestANetworkProxyThatRefusesIsSaidSo(t *testing.T) {
 		t.Fatalf("a refused tunnel should fail as a bad gateway: %v", err)
 	}
 }
+
+func TestAnAddressStandsForAServiceForProgramsThatIgnoreProxies(t *testing.T) {
+	fw := &recorder{}
+	p, err := Start(fw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	target, _ := url.Parse("https://api.example.com/v2")
+	address, err := p.StandFor(target)
+	if err != nil || !strings.HasPrefix(address, "http://127.0.0.1:") || !strings.HasSuffix(address, "/v2") {
+		t.Fatalf("the address is %q: %v", address, err)
+	}
+	// A program that was only told where the service is: no proxy, and no
+	// certificate authority to trust.
+	direct := &http.Client{Transport: &http.Transport{Proxy: nil}}
+	req, _ := http.NewRequest("POST", address+"/charges?expand=1", strings.NewReader("amount=10"))
+	req.Header.Set("Authorization", "Bearer envrune_sealed_placeholder")
+	resp, err := direct.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 201 || string(body) != `{"ok":true}` || resp.Header.Get("X-Answer") != "yes" {
+		t.Fatalf("the program got %d %q", resp.StatusCode, body)
+	}
+	if len(fw.requests) != 1 || fw.requests[0] != "POST https://api.example.com/v2/charges?expand=1 Bearer envrune_sealed_placeholder" || fw.bodies[0] != "amount=10" {
+		t.Fatalf("the forwarder was asked %q with %q", fw.requests, fw.bodies)
+	}
+
+	// Reached under another name, as a page in a browser would, it answers nothing.
+	req, _ = http.NewRequest("GET", address+"/charges", nil)
+	req.Host = "attacker.example"
+	resp, err = direct.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusMisdirectedRequest || len(fw.requests) != 1 {
+		t.Fatalf("under another name it answered %d and forwarded %d requests", resp.StatusCode, len(fw.requests))
+	}
+
+	// No sensitive secret allows this host: there is nothing to stand for.
+	other, _ := url.Parse("https://other.example.com")
+	if _, err := p.StandFor(other); err == nil {
+		t.Fatal("an address was given for a host no sensitive secret allows")
+	}
+	p.Close()
+	if _, err := direct.Get(address); err == nil {
+		t.Fatal("the address still answers after the command ended")
+	}
+}

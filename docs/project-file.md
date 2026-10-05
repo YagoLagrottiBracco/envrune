@@ -133,6 +133,30 @@ run, giving the path in `ENVRUNE_RENDERED`.
 The template is committed and holds no value. The rendered file holds
 values and never exists in the project folder.
 
+## Where a service is
+
+```yaml
+forward:
+  PAYMENTS_URL: https://api.example.com/v1
+```
+
+`PAYMENTS_URL` receives the address of the service, for the program to
+build its requests on. Normally that is the address as written.
+
+It matters with a [sensitive secret](managed-keys.md): a value the program
+uses without receiving it, because its requests take a detour through a
+proxy that `envrune` starts. Most programs take that detour by themselves,
+from the standard proxy variables. One that ignores them cannot, but nearly
+every program can be told where its service is. When a sensitive secret of
+the environment allows the host in `forward`, the variable holds an address
+on this computer instead (`http://127.0.0.1:<port>/v1`), and requests sent
+there are forwarded to the service as the detour would.
+
+The address must be `https`, on the standard port, with no user, query, or
+fragment. A variable is either in `forward` or in an environment, not both.
+`run`, named commands, `up`, `render`, `check`, and the MCP server set these
+variables; `env` and `export` do not.
+
 ## Checks
 
 ```yaml

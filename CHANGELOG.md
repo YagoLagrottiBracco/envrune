@@ -17,6 +17,10 @@ All notable changes to EnvRune are listed here. The format follows
   server's database is not set up, and `/api/v1/health` reports it as
   `database`. Self-hosted servers apply the new migration
   (`20261005130000_schema_version.sql`).
+- `forward:` in `envrune.yml` gives a variable the address of a service.
+  When a sensitive secret is used there, the address is one on this
+  computer that stands for the service, so a program that ignores the proxy
+  variables can use a sensitive secret too.
 
 ### Fixed
 

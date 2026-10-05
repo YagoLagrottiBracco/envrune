@@ -169,6 +169,26 @@ func TestFilesRenderAndChecksAreRead(t *testing.T) {
 	}
 }
 
+func TestForwardNamesTheAddressOfAService(t *testing.T) {
+	base := "version: 1\nproject: shop\nenvironments:\n  development:\n    PAYMENTS_KEY: shop.payments-key\n"
+	c, err := Load(write(t, filepath.Join(t.TempDir(), "envrune.yml"), base+"forward:\n  PAYMENTS_URL: https://api.example.com/v2\n"))
+	if err != nil || c.Forward["PAYMENTS_URL"] != "https://api.example.com/v2" {
+		t.Fatalf("forward %v: %v", c.Forward, err)
+	}
+	for name, bad := range map[string]string{
+		"an address that is not https":   "forward:\n  PAYMENTS_URL: http://api.example.com\n",
+		"an address with a user":         "forward:\n  PAYMENTS_URL: https://me:secret@api.example.com\n",
+		"an address with a query":        "forward:\n  PAYMENTS_URL: https://api.example.com/?key=1\n",
+		"another port":                   "forward:\n  PAYMENTS_URL: https://api.example.com:8443\n",
+		"a name that is not a variable":  "forward:\n  payments-url: https://api.example.com\n",
+		"a variable an environment sets": "forward:\n  PAYMENTS_KEY: https://api.example.com\n",
+	} {
+		if _, err := Load(write(t, filepath.Join(t.TempDir(), "envrune.yml"), base+bad)); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+}
+
 func TestSetLocalBindingWritesTheOverride(t *testing.T) {
 	dir := t.TempDir()
 	p := write(t, filepath.Join(dir, "envrune.yml"), layered)

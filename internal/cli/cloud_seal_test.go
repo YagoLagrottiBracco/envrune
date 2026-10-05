@@ -138,6 +138,46 @@ func TestAProgramUsesASensitiveSecretThroughRun(t *testing.T) {
 	}
 }
 
+func TestAProgramThatIgnoresProxiesIsToldWhereTheServiceIs(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil || runtime.GOOS == "windows" {
+		t.Skip("needs curl and a POSIX shell")
+	}
+	server := newSensitiveServer(t, []string{"api.example.com"})
+	forward := "forward:\n  PAYMENTS_URL: https://api.example.com/v1\n  DOCS_URL: https://docs.example.com\n"
+	f := newFixture(t, sensitiveConfig+forward)
+	if err := f.session.UpdateCloudState(func([]byte) ([]byte, error) { return []byte(server.state), nil }); err != nil {
+		t.Fatal(err)
+	}
+
+	// --noproxy: this program does not take the detour the variables offer.
+	script := `echo "docs=$DOCS_URL"; case "$PAYMENTS_URL" in http://127.0.0.1:*/v1) echo local;; esac; ` +
+		`curl -sS --noproxy '*' --max-time 20 -X POST "$PAYMENTS_URL/charges" -H "Authorization: Bearer $PAYMENTS_KEY"`
+	code := f.run("run", "--no-redact", "--", "sh", "-c", script)
+	out := f.output()
+	if code != 0 || !strings.Contains(out, "local") || !strings.Contains(out, `{"charged":true}`) {
+		t.Fatalf("run = %d:\n%s", code, out)
+	}
+	// No sensitive secret is used at the other service: its own address.
+	if !strings.Contains(out, "docs=https://docs.example.com") || strings.Contains(out, "the-real-value") {
+		t.Fatalf("the other address, or the value:\n%s", out)
+	}
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	if want := "POST https://api.example.com/v1/charges Bearer the-real-value "; len(server.received) != 1 || server.received[0] != want {
+		t.Fatalf("the service received %q", server.received)
+	}
+}
+
+func TestForwardIsTheServicesOwnAddressWithoutSensitiveSecrets(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs a POSIX shell")
+	}
+	f := newFixture(t, baseConfig+"forward:\n  PAYMENTS_URL: https://api.example.com/v1\n")
+	if code := f.run("run", "--no-redact", "--", "sh", "-c", `echo "url=$PAYMENTS_URL"`); code != 0 || !strings.Contains(f.output(), "url=https://api.example.com/v1") {
+		t.Fatalf("run = %d: %s", code, f.output())
+	}
+}
+
 func TestSensitiveSecretsAreNotShownOrExported(t *testing.T) {
 	server := newSensitiveServer(t, []string{"api.example.com"})
 	f := newFixture(t, sensitiveConfig)

@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 
@@ -21,15 +23,27 @@ import (
 // function to call when the command has ended. With no sensitive secret in
 // the environment it does nothing. It needs the server: a sensitive secret
 // cannot be used offline.
+//
+// The variables in the project's forward: are set here too. Each receives
+// the address of its service: a local one that stands for it when a
+// sensitive secret is used there, and the service's own otherwise, so the
+// same envrune.yml works with and without sensitive secrets.
 func (w Workspace) seal(projectPath, environment string) ([]runner.Pair, func(), error) {
 	none := func() {}
 	config, err := project.Load(projectPath)
-	if err != nil || config.Cloud == "" || w.Session == nil {
+	if err != nil {
 		return nil, none, nil
+	}
+	direct := make([]runner.Pair, 0, len(config.Forward))
+	for _, name := range slices.Sorted(maps.Keys(config.Forward)) {
+		direct = append(direct, runner.Pair{Name: name, Value: []byte(config.Forward[name])})
+	}
+	if config.Cloud == "" || w.Session == nil {
+		return direct, none, nil
 	}
 	chosen, err := app.ChooseEnvironment(config, environment)
 	if err != nil {
-		return nil, none, nil
+		return direct, none, nil
 	}
 	var named []cloud.Path
 	for _, ref := range config.Environments[chosen] {
@@ -40,7 +54,7 @@ func (w Workspace) seal(projectPath, environment string) ([]runner.Pair, func(),
 	service := w.cloudService()
 	sensitive, err := service.SensitiveNames(named)
 	if err != nil || len(sensitive) == 0 {
-		return nil, none, nil
+		return direct, none, nil
 	}
 	ctx, cancel := cloudContext()
 	defer cancel()
@@ -76,9 +90,24 @@ func (w Workspace) seal(projectPath, environment string) ([]runner.Pair, func(),
 		hosts = append(hosts, s.Hosts...)
 	}
 	unseal := w.Session.Seal(placeholders)
-	pairs := make([]runner.Pair, 0, len(variables))
+	pairs := make([]runner.Pair, 0, len(variables)+len(direct))
 	for _, v := range variables {
 		pairs = append(pairs, runner.Pair{Name: v[0], Value: []byte(v[1])})
+	}
+	for _, pair := range direct {
+		target, err := project.ForwardTarget(string(pair.Value))
+		if err == nil && forwarder.Handles(target.Hostname()) {
+			// A sensitive secret is used there: the program is given an
+			// address on this computer that stands for the service.
+			local, err := proxy.StandFor(target)
+			if err != nil {
+				proxy.Close()
+				unseal()
+				return nil, none, err
+			}
+			pair.Value = []byte(local)
+		}
+		pairs = append(pairs, pair)
 	}
 	w.status().Info(fmt.Sprintf("%s never %s this computer: requests to %s go through the server, which adds %s.",
 		strings.Join(names, ", "), plural(len(names), "reaches", "reach"), strings.Join(hosts, ", "), plural(len(names), "it", "them")))

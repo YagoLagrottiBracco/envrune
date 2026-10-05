@@ -105,6 +105,11 @@ type Config struct {
 	Render map[string]string
 	// Checks are commands that succeed while a secret still works.
 	Checks map[string]string
+	// Forward maps a variable to the https address of a service. The
+	// variable receives that address, or a local one that stands for it
+	// when a sensitive secret is used there, for programs that cannot be
+	// pointed at a proxy.
+	Forward map[string]string
 
 	// shared is Environments without the personal override, and local the
 	// override, so the shared file can be written back without either what
@@ -246,12 +251,31 @@ func parseDocument(root *yaml.Node) (Config, error) {
 					return Config{}, configError(v, "checks: %q is not a valid name; use lowercase letters, digits, - and _", name)
 				}
 			}
+		case "forward":
+			if out.Forward, err = parseStrings(v, "forward"); err != nil {
+				return Config{}, err
+			}
+			for name, address := range out.Forward {
+				if !variableName.MatchString(name) {
+					return Config{}, configError(v, "forward: %q is not a valid variable name; use names like PAYMENTS_URL", name)
+				}
+				if _, err := ForwardTarget(address); err != nil {
+					return Config{}, configError(v, "forward.%s: %v", name, err)
+				}
+			}
 		default:
 			return Config{}, configError(k, "unknown key %q", k.Value)
 		}
 	}
 	if !seenVersion || !seenProject || !seenEnvironments {
 		return Config{}, configError(root, "version, project, and environments are required")
+	}
+	for name := range out.Forward {
+		for environment, bindings := range out.Environments {
+			if _, bound := bindings[name]; bound {
+				return Config{}, configError(root, "%s is in forward and in the %s environment; a variable is one or the other", name, environment)
+			}
+		}
 	}
 	return out, nil
 }
@@ -437,8 +461,9 @@ func WriteAtomic(path string, config Config) error {
 		Files        []string                               `yaml:"files,omitempty"`
 		Render       map[string]string                      `yaml:"render,omitempty"`
 		Checks       map[string]string                      `yaml:"checks,omitempty"`
+		Forward      map[string]string                      `yaml:"forward,omitempty"`
 	}{1, config.Project, config.DefaultEnv, config.ownCloud(), config.Workspace, commands, config.Up, config.declared(),
-		config.Extends, config.Files, config.Render, config.Checks})
+		config.Extends, config.Files, config.Render, config.Checks, config.Forward})
 	if err != nil {
 		return ErrInvalidConfig
 	}

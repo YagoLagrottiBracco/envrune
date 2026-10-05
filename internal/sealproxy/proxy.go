@@ -60,6 +60,8 @@ type Proxy struct {
 
 	mu     sync.Mutex
 	leaves map[string]*tls.Certificate
+	// stands are the servers of the addresses given out by StandFor.
+	stands []*http.Server
 	// Refused is called when a request could not be forwarded, with the
 	// host and the reason, which never holds a value.
 	Refused func(host string, err error)
@@ -111,6 +113,11 @@ func (p *Proxy) Address() string { return "http://" + p.listener.Addr().String()
 // Close stops the proxy and removes what it wrote.
 func (p *Proxy) Close() {
 	_ = p.server.Close()
+	p.mu.Lock()
+	for _, stand := range p.stands {
+		_ = stand.Close()
+	}
+	p.mu.Unlock()
 	if p.dir != "" {
 		_ = os.RemoveAll(p.dir)
 	}
@@ -236,6 +243,39 @@ func (p *Proxy) serve(w http.ResponseWriter, r *http.Request) {
 		p.forward(w, r, host)
 	})}
 	_ = inner.Serve(&oneConn{conn: conn})
+}
+
+// StandFor opens an address on the loopback interface that stands for
+// target, an https address on a host the Forwarder handles, and returns it.
+// It is for a program that cannot be pointed at a proxy but can be told
+// where a service is: given this address instead, its requests arrive here
+// in plain HTTP, which never leaves this computer, and are forwarded like
+// the ones the proxy reads. The address keeps target's path, so the program
+// builds the same paths it would against the service.
+func (p *Proxy) StandFor(target *url.URL) (string, error) {
+	if target.Scheme != "https" || !p.forwarder.Handles(target.Hostname()) {
+		return "", errors.New("no sensitive secret allows " + target.Hostname())
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
+	}
+	address := listener.Addr().String()
+	server := &http.Server{ReadHeaderTimeout: 30 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Only a program that was given this address: a page in a browser
+		// that reaches it under another name is turned away.
+		if r.Host != address {
+			http.Error(w, "envrune: this address answers only to its own name", http.StatusMisdirectedRequest)
+			return
+		}
+		r.Host = target.Hostname()
+		p.forward(w, r, target.Hostname())
+	})}
+	p.mu.Lock()
+	p.stands = append(p.stands, server)
+	p.mu.Unlock()
+	go func() { _ = server.Serve(listener) }()
+	return "http://" + address + strings.TrimSuffix(target.Path, "/"), nil
 }
 
 // forward hands one request read from the program to the Forwarder.

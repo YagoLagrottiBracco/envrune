@@ -236,8 +236,9 @@ What to know before using it:
 - **It needs the server for every request**, so it does not work offline.
 - **The program must honour the standard proxy variables**
   (`HTTPS_PROXY`), as most HTTP libraries do; Node reads them because
-  `envrune` sets `NODE_USE_ENV_PROXY`. A program that ignores them sends the
-  placeholder, which the service refuses.
+  `envrune` sets `NODE_USE_ENV_PROXY`. A program that ignores them is told
+  where the service is instead, with `forward:` in `envrune.yml`
+  ([project-file.md](project-file.md#where-a-service-is)).
 - **Only for values that travel in an HTTPS request.** A database password,
   or a key the program signs with itself, stays an ordinary secret.
 - **A client certificate can be one too**, for services that identify
