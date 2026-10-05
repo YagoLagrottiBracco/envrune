@@ -26,6 +26,8 @@ is stored in your vault, encrypted like your secrets.
 On your first device, `cloud init` creates your account keys and shows a
 **recovery key once**. Write it down and keep it offline: with it,
 `envrune cloud recover` restores your access if you lose every device.
+Never paste it into a chat, an issue, or a file that is synced: if someone
+else may have seen it, replace it with `envrune cloud recovery reset`.
 
 On another device, `cloud init` registers it as pending and shows a
 fingerprint. Approve it from a device you already use:
@@ -323,6 +325,19 @@ envrune cloud device revoke <id>
 The server stops serving it at once. The command starts a new key for the
 environments that device held one for, and `envrune cloud rotation acme`
 lists the values it had fetched, which whoever has it may know.
+
+**Someone may have seen your recovery key.** Replace it from a device you
+already use:
+
+```sh
+envrune cloud recovery reset
+```
+
+It shows a new recovery key once; the old one stops opening anything on the
+server. Your devices keep working, and nobody else has to do anything. If a
+copy of the server's database from before may also be in the wrong hands,
+that is not enough: see
+[Replacing the recovery key](cloud-crypto.md#replacing-the-recovery-key).
 
 **A project may be compromised**, and you do not know how far:
 

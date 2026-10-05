@@ -117,6 +117,30 @@ recovery key once (like the local vault's), and uploads:
 
 The account private key is also kept on each trusted device, in the vault.
 
+### Replacing the recovery key
+
+A recovery key that someone else may have seen is replaced from a trusted
+device with `envrune cloud recovery reset`. The device, which holds the
+account private key, generates a new recovery key and a new recovery age
+identity, encrypts a new backup, and signs the new recovery recipient. The
+server checks that signature against the registered account key, replaces
+the backup and the recipient, and deletes every environment key wrapped for
+the old recipient. The device then wraps the current key of each
+environment the user can use for the new recipient.
+
+The recovery key opens nothing by itself: it decrypts the backup, which the
+server gives only to the signed-in account. Replacing it makes the old key
+useless against the server as it is from then on.
+
+It does not undo a copy. The old backup holds the account private key, and
+that key does not change. Whoever has the old recovery key **and** a copy
+of the old backup, from a database dump or a backup of the database made
+before the reset, has the account key: they can read what the account can
+and sign as it. Then the account itself is compromised, and replacing the
+recovery key is not enough: an administrator removes the member, the member
+registers a new account, and the secrets they could read are replaced
+([cloud-operations.md](cloud-operations.md)).
+
 ### Devices
 
 Each device generates its age identity and signing key locally and stores
