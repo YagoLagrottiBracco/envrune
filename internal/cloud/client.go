@@ -155,18 +155,19 @@ func (c *Client) send(ctx context.Context, method, path string, query url.Values
 }
 
 // Health checks that the server is an EnvRune Cloud server.
-func (c *Client) Health(ctx context.Context) error {
+func (c *Client) Health(ctx context.Context) (*ServerHealth, error) {
 	var h struct {
-		Service string `json:"service"`
-		API     int    `json:"api"`
+		Service  string `json:"service"`
+		API      int    `json:"api"`
+		Database string `json:"database"`
 	}
 	if err := c.send(ctx, http.MethodGet, "/health", nil, "", nil, &h); err != nil {
-		return err
+		return nil, err
 	}
 	if h.Service != "envrune-cloud" || h.API != 1 {
-		return fmt.Errorf("%s is not an EnvRune Cloud server this version understands", c.Server)
+		return nil, fmt.Errorf("%s is not an EnvRune Cloud server this version understands", c.Server)
 	}
-	return nil
+	return &ServerHealth{Database: h.Database}, nil
 }
 
 // machineFetch fetches an environment with a machine token.

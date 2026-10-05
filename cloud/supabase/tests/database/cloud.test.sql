@@ -4,7 +4,7 @@
 -- member. Signatures are placeholders: the database does not check them;
 -- the API and every client do.
 begin;
-select plan(90);
+select plan(91);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'alice@example.com'),
@@ -325,6 +325,11 @@ select is((select count(*)::int from public.wrapped_keys where recipient_user_id
 select ok(exists (select 1 from public.audit_log where org_id = :'org' and action = 'recovery.reset'
     and actor_user_id = '00000000-0000-0000-0000-00000000000a' and actor_device_id = 'alice-laptop'),
   'the organization sees that a recovery key was replaced');
+set local role authenticated;
+
+-- Anyone may ask which schema the database has.
+set local role anon;
+select ok(public.schema_version() >= 20261005130000, 'the database says which schema it has');
 set local role authenticated;
 
 -- The audit log is append-only and hash-chained.

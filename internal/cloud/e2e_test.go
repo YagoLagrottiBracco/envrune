@@ -152,6 +152,17 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatal("a consumer wrote a value")
 	}
 
+	// The doctor finds a working setup: the real server answers for its
+	// database's schema, and every signature it checks is the real one.
+	for _, check := range alice.Doctor(ctx) {
+		if check.Level != CheckOK {
+			t.Fatalf("the doctor found: %s", check.Message)
+		}
+	}
+	if health := must[*ServerHealth](t)(alice.Health(ctx)); health.Database != DatabaseOK {
+		t.Fatalf("the server says its database is %q", health.Database)
+	}
+
 	// A second device of alice, approved by the first.
 	laptop2 := e.device(aliceEmail, "e2e-"+e.suffix+"-alice")
 	pending := must[*SetupResult](t)(laptop2.Setup(ctx, "alice-desktop"))

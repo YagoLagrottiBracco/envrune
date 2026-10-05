@@ -39,6 +39,12 @@ envrune cloud device approve <id>   # check that both screens show the same fing
 Then run `envrune cloud init` on the new device again to finish.
 `envrune cloud whoami` shows your account and device fingerprints.
 
+`envrune cloud doctor` checks, in order, what has to hold for all of this
+to work: the server answers and its database is set up, your session is
+valid, this device is trusted, your recovery key's recipient on the server
+is yours, and each organization's membership verifies. Run it first when
+something does not work.
+
 If a command fails and the message does not say why, run it with
 `--verbose` right after `envrune`, or with `ENVRUNE_VERBOSE=1`:
 

@@ -19,6 +19,7 @@ import (
 
 const cloudUsage = `cloud <command>
   whoami                                   Show the account, this device, and their fingerprints
+  doctor                                   Check the server, the session, this device, and your organizations
   init [--name device]                     Create your account, or register this device
   recover [--name device]                  Set up this device with your recovery key
   recovery reset                           Replace your recovery key with a new one
@@ -116,6 +117,11 @@ func (w Workspace) login(argv []string) int {
 		return w.cloudFail(err)
 	}
 	w.status().Success(fmt.Sprintf("Signed in to %s as %s.", st.Server, st.Email))
+	// Signing in works on a server whose database was never set up, and
+	// nothing after it does: say so now, not at the first command that fails.
+	if health, err := w.cloudService().Health(ctx); err == nil && (health.Database == cloud.DatabaseBehind || health.Database == cloud.DatabaseUnreachable) {
+		w.status().Warn("This server's database is not ready: run `envrune cloud doctor` for what is wrong.")
+	}
 	if st.DeviceID == "" {
 		w.status().Info("Next, run `envrune cloud init` to set up your keys on this device.")
 	}
@@ -143,6 +149,8 @@ func (w Workspace) cloud(argv []string) int {
 		return w.cloudWhoami(rest)
 	case "init":
 		return w.cloudInit(rest)
+	case "doctor":
+		return w.cloudDoctor(rest)
 	case "recover":
 		return w.cloudRecover(rest)
 	case "recovery":
@@ -270,6 +278,32 @@ func (w Workspace) deviceID() string {
 		return "<id>"
 	}
 	return st.DeviceID
+}
+
+// cloudDoctor says what stands between this device and a working EnvRune
+// Cloud, in the order a new user meets it.
+func (w Workspace) cloudDoctor(argv []string) int {
+	if len(argv) != 0 {
+		return w.usageError("cloud doctor")
+	}
+	ctx, cancel := cloudContext()
+	defer cancel()
+	failed := false
+	for _, check := range w.cloudService().Doctor(ctx) {
+		switch check.Level {
+		case cloud.CheckOK:
+			w.status().Success(sentence(check.Message))
+		case cloud.CheckWarn:
+			w.status().Warn(sentence(check.Message))
+		default:
+			failed = true
+			w.status().Error(sentence(check.Message))
+		}
+	}
+	if failed {
+		return 1
+	}
+	return 0
 }
 
 // cloudRecovery replaces the account's recovery key, for when someone else

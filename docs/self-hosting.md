@@ -122,8 +122,13 @@ organizations send events to addresses on your own network; by default the
 server only sends to public HTTPS addresses, so a webhook cannot be used to
 reach what only the server can.
 
-`GET /api/v1/health` answers `{"service":"envrune-cloud","api":1}` when the
-server is up and configured; the image's health check uses it. A server
+`GET /api/v1/health` answers
+`{"service":"envrune-cloud","api":1,"database":"ok"}` when the server is up
+and configured; the image's health check uses it. `database` is `behind`
+when files in `cloud/supabase/migrations` are still to be applied, `ahead`
+when the database is newer than the server, and `unreachable` when the
+server cannot ask it. The server stays healthy in each case, so it can say
+so: `envrune login` warns, and `envrune cloud doctor` names what is wrong. A server
 started without one of the three variables keeps running: its pages say
 which variables are missing, by name, and the API answers 503, so
 `envrune login` reports that the server is not configured yet.

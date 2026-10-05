@@ -41,6 +41,8 @@ type fakeServer struct {
 	envs     []*fakeEnv
 	versions map[string][]secretJSON // env id → every version, all secrets
 	wrapped  []*fakeWrapped
+	// database is what /health says about the schema.
+	database string
 	tokens   []*fakeToken
 	fetches  int
 	checks   int
@@ -131,7 +133,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 	f := &fakeServer{t: t, emails: map[string]string{}, profiles: map[string]*fakeProfile{}, members: map[string]map[string]memberJSON{},
 		versions: map[string][]secretJSON{}, fetched: map[string]map[string]bool{},
 		audits: map[string][]AuditEntry{}, written: map[string]time.Time{}, transition: map[string]time.Time{},
-		lastFetch: map[string]map[fakeReader]time.Time{}, sensitive: map[string]*fakeSensitive{}}
+		lastFetch: map[string]map[fakeReader]time.Time{}, sensitive: map[string]*fakeSensitive{}, database: DatabaseOK}
 	f.proxy, _ = age.GenerateX25519Identity()
 	mux := http.NewServeMux()
 	route := func(pattern string, h func(user string, r *http.Request) (any, int, error)) {
@@ -156,7 +158,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 		})
 	}
 	route("GET /api/v1/health", func(string, *http.Request) (any, int, error) {
-		return map[string]any{"service": "envrune-cloud", "api": 1}, 200, nil
+		return map[string]any{"service": "envrune-cloud", "api": 1, "database": f.database}, 200, nil
 	})
 	route("GET /api/v1/account", f.getAccount)
 	route("POST /api/v1/account", f.postAccount)

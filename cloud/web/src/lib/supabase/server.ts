@@ -35,6 +35,13 @@ export function bearerClient(accessToken: string): SupabaseClient {
   });
 }
 
+/** A client that is nobody: for what anyone may ask, such as the schema's version. */
+export function anonymousClient(): SupabaseClient {
+  return createPlainClient(supabaseUrl(), publishableKey(), {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+}
+
 /** The service client. Only for machine tokens and the CLI sign-in. */
 export function adminClient(): SupabaseClient {
   return createPlainClient(supabaseUrl(), secretKey(), {

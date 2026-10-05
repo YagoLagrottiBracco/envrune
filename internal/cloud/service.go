@@ -112,7 +112,7 @@ func (s *Service) Login(ctx context.Context, server string, open func(address st
 	if err := checkServer(server); err != nil {
 		return nil, err
 	}
-	if err := (&Client{Server: server, HTTP: s.HTTP}).Health(ctx); err != nil {
+	if _, err := (&Client{Server: server, HTTP: s.HTTP}).Health(ctx); err != nil {
 		return nil, err
 	}
 	current, err := s.state()

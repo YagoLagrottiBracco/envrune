@@ -11,6 +11,12 @@ All notable changes to EnvRune are listed here. The format follows
 - `envrune version` prints the version of the installed command, and
   `envrune version --check` asks GitHub whether a newer release exists.
   EnvRune never looks for updates by itself.
+- `envrune cloud doctor` checks the server, its database, your session,
+  this device, your recovery key's recipient, and each organization, and
+  says what to run for whatever is wrong. `envrune login` warns when the
+  server's database is not set up, and `/api/v1/health` reports it as
+  `database`. Self-hosted servers apply the new migration
+  (`20261005130000_schema_version.sql`).
 
 ### Changed
 
