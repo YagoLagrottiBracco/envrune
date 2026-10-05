@@ -137,9 +137,45 @@ that key does not change. Whoever has the old recovery key **and** a copy
 of the old backup, from a database dump or a backup of the database made
 before the reset, has the account key: they can read what the account can
 and sign as it. Then the account itself is compromised, and replacing the
-recovery key is not enough: an administrator removes the member, the member
-registers a new account, and the secrets they could read are replaced
-([cloud-operations.md](cloud-operations.md)).
+recovery key is not enough: the account key is replaced, as described next.
+
+### Replacing the account key
+
+An account key cannot be changed in place. Every organization's members
+hold it inside the membership an administrator signed for that person, and
+trust what it signs because of that signature; a key the member swapped by
+themselves would be a key nobody vouched for. So a new account key takes
+the same three steps as a new member, and reuses them:
+
+1. **An administrator removes the member** (`envrune cloud member remove`).
+   This is what protects the organization from the old key: new keys for
+   every environment the member could use, everything they signed signed
+   again by someone else, their machine tokens revoked, and the values they
+   fetched listed to be replaced.
+2. **The member resets the account** (`envrune cloud account reset`), from
+   any device signed in to it. The device makes a new account key, a new
+   recovery key and backup, and new device keys, and the server replaces
+   the old ones, revokes the account's other devices, and deletes whatever
+   was still wrapped for it. The server allows this only for an account
+   that is in no organization at that moment, so a reset can never leave an
+   organization trusting a key that is gone.
+3. **An administrator adds the member again** (`envrune cloud member add`),
+   comparing the new account fingerprint over a channel the server does not
+   control, exactly as the first time.
+
+This is also the way back for someone who lost every device **and** the
+recovery key: signing in needs only the email, and after step 1 the account
+can be reset from a new device.
+
+A **root holder** cannot do this. The organization's roots are the account
+keys every member pinned when joining, and the set never changes: a root
+whose key is known, or lost, is why an organization can name up to three of
+them. If every root is lost or known, the organization is replaced by a new
+one.
+
+What a reset does not do: it does not make the old key's past signatures
+invalid by itself. Step 1 does, by replacing them, which is why the server
+insists on it first.
 
 ### Devices
 
@@ -168,9 +204,9 @@ A new device gets its certificate in one of two ways:
    recovery age identity to unwrap the environment keys wrapped for this
    user, then wraps them to itself.
 
-An admin can also approve a member's device, as the spec asks, by signing a
-membership certificate for a new account key (see below); this is the path
-for "I lost everything and the recovery key".
+A member who lost everything and the recovery key gets a new account key,
+and an administrator signs a membership for it: see
+[Replacing the account key](#replacing-the-account-key).
 
 ### Organizations, members, and trust
 

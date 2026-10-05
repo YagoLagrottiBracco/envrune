@@ -349,6 +349,20 @@ copy of the server's database from before may also be in the wrong hands,
 that is not enough: see
 [Replacing the recovery key](cloud-crypto.md#replacing-the-recovery-key).
 
+**Your account key may be known**, or **you lost every device and the
+recovery key**. Ask an owner or admin of each organization you are in to
+remove you; then, on any device signed in to your account:
+
+```sh
+envrune cloud account reset
+```
+
+It makes a new account key, recovery key, and device, and revokes your
+other devices. Read the new account fingerprint to the administrator, who
+adds you again with `envrune cloud member add`. A root holder of an
+organization cannot reset: see
+[Replacing the account key](cloud-crypto.md#replacing-the-account-key).
+
 **A project may be compromised**, and you do not know how far:
 
 ```sh
