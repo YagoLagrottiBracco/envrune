@@ -28,6 +28,20 @@ func (c *Client) registerAccount(ctx context.Context, public, backup []byte, rec
 	}, nil)
 }
 
+// resetRecovery replaces the account's recovery backup and recovery
+// recipient, from the approved device deviceID.
+func (c *Client) resetRecovery(ctx context.Context, deviceID string, backup []byte, recovery *cloudcrypto.RecipientCertificate) error {
+	return c.call(ctx, http.MethodPost, "/account/recovery", nil, map[string]any{
+		"device_id":       deviceID,
+		"recovery_backup": backup,
+		"recovery": map[string]any{
+			"age_recipient": recovery.AgeRecipient,
+			"created_at_us": recovery.CreatedAt.UnixMicro(),
+			"signature":     recovery.Signature,
+		},
+	}, nil)
+}
+
 // registerDevice uploads a device's public keys; cert.Signature is nil for a
 // device waiting for approval.
 func (c *Client) registerDevice(ctx context.Context, name string, cert *cloudcrypto.RecipientCertificate) error {

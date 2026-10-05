@@ -6,6 +6,14 @@ All notable changes to EnvRune are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `envrune cloud recovery reset` replaces your EnvRune Cloud recovery key,
+  for when someone else may have seen it. A trusted device makes a new key
+  and a new backup; the server drops what the old one opened, and the old
+  key stops working. Self-hosted servers apply the new migration
+  (`20261005120000_recovery_reset.sql`) first.
+
 ## [1.1.0] - 2026-10-04
 
 ### Added

@@ -159,6 +159,46 @@ func TestRecoveryKeyRestoresAccess(t *testing.T) {
 	must[uint64](t)(lost.Set(ctx, secret("stripe-key"), []byte("sk_live_2")))
 }
 
+func TestAResetRecoveryKeyReplacesTheOldOne(t *testing.T) {
+	f := newFakeServer(t)
+	alice, setup := founder(t, f)
+	old := cloudcrypto.RecoveryKey(setup.RecoveryKey)
+
+	// A device waiting for approval holds no account key, so it cannot.
+	pending := f.signIn("alice")
+	must[*SetupResult](t)(pending.Setup(ctx, "desktop"))
+	if _, _, err := pending.ResetRecovery(ctx); !errors.Is(err, ErrNotApproved) {
+		t.Fatalf("a pending device replaced the recovery key: %v", err)
+	}
+
+	fresh, shared, err := alice.ResetRecovery(ctx)
+	if err != nil || shared != 1 || fresh == old {
+		t.Fatalf("reset shared %d keys, a new key %v: %v", shared, fresh != old, err)
+	}
+
+	lost := f.signIn("alice")
+	if _, err := lost.Recover(ctx, old, "new-laptop"); err == nil {
+		t.Fatal("the old recovery key still worked")
+	}
+	if restored := must[int](t)(lost.Recover(ctx, fresh, "new-laptop")); restored != 1 {
+		t.Fatalf("the new key restored %d keys", restored)
+	}
+	if got := value(t, lost, production, "stripe-key"); got != "sk_live_1" {
+		t.Fatalf("read %q after recovery with the new key", got)
+	}
+
+	// Keys made later are wrapped for the new recipient too.
+	must[uint64](t)(alice.Rotate(ctx, "acme", "shop", "production", false))
+	must[uint64](t)(alice.Set(ctx, secret("stripe-key"), []byte("sk_live_2")))
+	later := f.signIn("alice")
+	if restored := must[int](t)(later.Recover(ctx, fresh, "another-laptop")); restored != 1 {
+		t.Fatalf("after a rotation the new key restored %d keys", restored)
+	}
+	if got := value(t, later, production, "stripe-key"); got != "sk_live_2" {
+		t.Fatalf("read %q after a rotation", got)
+	}
+}
+
 func TestRemovedMembersCannotReadWhatComesNext(t *testing.T) {
 	f := newFakeServer(t)
 	alice, _ := founder(t, f)

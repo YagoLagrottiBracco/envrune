@@ -4,7 +4,7 @@
 -- member. Signatures are placeholders: the database does not check them;
 -- the API and every client do.
 begin;
-select plan(84);
+select plan(90);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'alice@example.com'),
@@ -303,6 +303,28 @@ select is((select count(*)::int from public.wrapped_keys w join public.environme
 select is((select count(*)::int from public.rotation_items i join public.rotation_tasks t on t.id = i.task_id where t.reason = 'emergency' and t.org_id = :'org'),
   (select count(*)::int from public.secrets s join public.environments e on e.id = s.environment_id where e.project_id = :'project'),
   'an emergency lists every secret of the project');
+set local role authenticated;
+
+-- Replacing a recovery key: the backup and the recipient change, and
+-- nothing stays wrapped for the old recipient.
+select pg_temp.become('00000000-0000-0000-0000-00000000000a');
+select public.put_wrapped_keys(:'env', (select epoch from public.environments where id = :'env'), 'alice-laptop', jsonb_build_array(
+    jsonb_build_object('recipient_user_id', '00000000-0000-0000-0000-00000000000a', 'recipient_id', 'recovery',
+      'wrapped', encode('old', 'base64'), 'signature', encode(pg_temp.sig(), 'base64'))));
+select throws_ok($$ select public.reset_recovery('new backup', 'age1alicenew', 40, pg_temp.sig(), 'no-such-device') $$,
+  '42501', null, 'only an approved device of the account replaces the recovery key');
+select lives_ok($$ select public.reset_recovery('new backup', 'age1alicenew', 40, pg_temp.sig(), 'alice-laptop') $$,
+  'an approved device replaces the recovery key');
+reset role;
+select is((select recovery_backup from public.profiles where user_id = '00000000-0000-0000-0000-00000000000a'), 'new backup'::bytea,
+  'the backup is the new one');
+select is((select age_recipient || ' ' || created_at_us from public.devices where user_id = '00000000-0000-0000-0000-00000000000a' and id = 'recovery'),
+  'age1alicenew 40', 'the recovery recipient is the new one');
+select is((select count(*)::int from public.wrapped_keys where recipient_user_id = '00000000-0000-0000-0000-00000000000a' and recipient_id = 'recovery'), 0,
+  'nothing stays wrapped for the old recovery recipient');
+select ok(exists (select 1 from public.audit_log where org_id = :'org' and action = 'recovery.reset'
+    and actor_user_id = '00000000-0000-0000-0000-00000000000a' and actor_device_id = 'alice-laptop'),
+  'the organization sees that a recovery key was replaced');
 set local role authenticated;
 
 -- The audit log is append-only and hash-chained.

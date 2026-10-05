@@ -177,6 +177,43 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("the recovered device read %q", got)
 	}
 
+	// A new recovery key replaces the one shown at sign-up: the server's
+	// backup opens with it and no longer with the old one, and the keys are
+	// wrapped for the new recovery recipient.
+	fresh, shared, err := recovered.ResetRecovery(ctx)
+	if err != nil || shared < 1 {
+		t.Fatalf("resetting the recovery key shared %d keys: %v", shared, err)
+	}
+	_, client, err := recovered.signedIn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	account := must[*accountJSON](t)(client.account(ctx))
+	if _, err := cloudcrypto.OpenRecoveryBackup(cloudcrypto.RecoveryKey(setup.RecoveryKey), account.UserID, account.RecoveryBackup); err == nil {
+		t.Fatal("the old recovery key still opens the backup")
+	}
+	restored, err := cloudcrypto.OpenRecoveryBackup(fresh, account.UserID, account.RecoveryBackup)
+	if err != nil {
+		t.Fatalf("the new recovery key does not open the backup: %v", err)
+	}
+	_, prodEnv, inSnapshot := must[*Snapshot](t)(client.snapshot(ctx, prod.Org)).environment(prod.Project, prod.Env)
+	if !inSnapshot {
+		t.Fatal("the snapshot lacks the environment")
+	}
+	payload := must[*EnvPayload](t)(client.fetchEnvironment(ctx, prodEnv.ID, must[*Status](t)(recovered.Status()).DeviceID))
+	var forRecovery *wrappedJSON
+	for i := range payload.WrappedKeys {
+		if payload.WrappedKeys[i].RecipientID == cloudcrypto.KindRecovery {
+			forRecovery = &payload.WrappedKeys[i]
+		}
+	}
+	if forRecovery == nil {
+		t.Fatal("no key is wrapped for the new recovery recipient")
+	}
+	if _, err := decryptWith(restored.Identity, forRecovery.Wrapped); err != nil {
+		t.Fatalf("the new recovery identity does not open its wrapped key: %v", err)
+	}
+
 	// A machine token reads its scope, and nothing after revocation.
 	token := must[string](t)(alice.CreateToken(ctx, org, "ci", []string{"shop/production"}, time.Hour))
 	values := must[map[string][]byte](t)(MachineValues(ctx, nil, e.server, token, env))

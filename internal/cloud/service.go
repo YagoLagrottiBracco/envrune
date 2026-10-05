@@ -459,6 +459,59 @@ func (s *Service) Recover(ctx context.Context, key cloudcrypto.RecoveryKey, devi
 	return s.reshare(ctx, c, st, device, target, recovery.Identity)
 }
 
+// ResetRecovery replaces the account's recovery key, from a trusted device:
+// a new key, a new backup of the account key under it, and a new recovery
+// recipient, for which it then wraps the current key of every environment
+// the user can use. The old key opens nothing on the server afterwards. It
+// returns the new key, to show once, and how many environment keys the new
+// recipient got. A failure after the server took the new backup returns the
+// key too: it is already the account's recovery key.
+func (s *Service) ResetRecovery(ctx context.Context) (cloudcrypto.RecoveryKey, int, error) {
+	var none cloudcrypto.RecoveryKey
+	st, c, err := s.signedIn()
+	if err != nil {
+		return none, 0, err
+	}
+	if !st.DeviceApproved || len(st.AccountSeed) == 0 {
+		return none, 0, ErrNotApproved
+	}
+	account, err := st.account()
+	if err != nil {
+		return none, 0, err
+	}
+	device, err := st.device()
+	if err != nil {
+		return none, 0, err
+	}
+	remote, err := c.account(ctx)
+	if err != nil {
+		return none, 0, err
+	}
+	// The key this device holds must be the registered one, or the backup
+	// made here would restore an account the server does not know.
+	if !remote.Registered || !account.Public.Equal(ed25519.PublicKey(remote.AccountKey)) {
+		return none, 0, fmt.Errorf("this device's account key is not the registered one: %w", cloudcrypto.ErrUntrusted)
+	}
+	key, err := cloudcrypto.NewRecoveryKey()
+	if err != nil {
+		return none, 0, err
+	}
+	identity, err := age.GenerateX25519Identity()
+	if err != nil {
+		return none, 0, err
+	}
+	backup, err := cloudcrypto.SealRecoveryBackup(key, account, identity)
+	if err != nil {
+		return none, 0, err
+	}
+	target := account.CertifyRecovery(identity.Recipient().String())
+	if err := c.resetRecovery(ctx, device.DeviceID, backup, target); err != nil {
+		return none, 0, err
+	}
+	shared, err := s.reshare(ctx, c, st, device, target, nil)
+	return key, shared, err
+}
+
 // Device is one of the user's devices, for `envrune cloud device list`.
 type Device struct {
 	ID, Name, Kind string

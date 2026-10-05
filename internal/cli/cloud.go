@@ -21,6 +21,7 @@ const cloudUsage = `cloud <command>
   whoami                                   Show the account, this device, and their fingerprints
   init [--name device]                     Create your account, or register this device
   recover [--name device]                  Set up this device with your recovery key
+  recovery reset                           Replace your recovery key with a new one
   device list | approve <id> | revoke <id>
   org list | show <org>
   org create <org> [--name n] [--roots email[,email]]   Up to two more root holders
@@ -144,6 +145,8 @@ func (w Workspace) cloud(argv []string) int {
 		return w.cloudInit(rest)
 	case "recover":
 		return w.cloudRecover(rest)
+	case "recovery":
+		return w.cloudRecovery(rest)
 	case "device":
 		return w.cloudDevice(rest)
 	case "org":
@@ -269,6 +272,37 @@ func (w Workspace) deviceID() string {
 		return "<id>"
 	}
 	return st.DeviceID
+}
+
+// cloudRecovery replaces the account's recovery key, for when someone else
+// may have seen it. See docs/cloud-crypto.md.
+func (w Workspace) cloudRecovery(argv []string) int {
+	if len(argv) != 1 || argv[0] != "reset" {
+		return w.usageError("cloud recovery reset")
+	}
+	if !w.confirmChoice("A new recovery key replaces the old one, which stops working. Continue?") {
+		w.status().Error("Confirmation is required.")
+		return 1
+	}
+	ctx, cancel := cloudContext()
+	defer cancel()
+	key, shared, err := w.cloudService().ResetRecovery(ctx)
+	defer wipe(key[:])
+	if key == (cloudcrypto.RecoveryKey{}) {
+		return w.cloudFail(err)
+	}
+	// From here the server holds the new backup: the key is shown even if
+	// wrapping the environment keys for it failed, or nothing would open it.
+	w.status().Success("Your recovery key was replaced. The old one no longer opens anything on the server.")
+	w.status().Warn("Write down this recovery key and keep it offline. It is shown only once.")
+	fmt.Fprintf(w.Stdout, "\n    %s\n\n", vault.FormatRecoveryKey(key[:]))
+	if err != nil {
+		w.cloudFail(err)
+		w.status().Warn("Not every environment key was wrapped for the new recovery key. Run `envrune cloud recovery reset` again.")
+		return 1
+	}
+	w.status().Info(fmt.Sprintf("It restores %d %s. If you lose every device, run `envrune cloud recover` with it.", shared, plural(shared, "environment key", "environment keys")))
+	return 0
 }
 
 func (w Workspace) cloudRecover(argv []string) int {

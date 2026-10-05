@@ -160,6 +160,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 	})
 	route("GET /api/v1/account", f.getAccount)
 	route("POST /api/v1/account", f.postAccount)
+	route("POST /api/v1/account/recovery", f.postRecovery)
 	route("GET /api/v1/accounts", f.getAccounts)
 	route("POST /api/v1/devices", f.postDevice)
 	route("POST /api/v1/devices/{id}/approve", f.approveDevice)
@@ -460,6 +461,42 @@ func (f *fakeServer) postAccount(user string, r *http.Request) (any, int, error)
 	f.devices = append(f.devices, &deviceJSON{UserID: user, ID: "recovery", Kind: "recovery", Name: "recovery key",
 		AgeRecipient: b.Recovery.AgeRecipient, CreatedAtUS: b.Recovery.CreatedAtUS, Signature: b.Recovery.Signature})
 	return map[string]string{"user_id": user}, 201, nil
+}
+
+// postRecovery replaces the backup and the recovery recipient, and drops
+// what was wrapped for the old one, as reset_recovery does.
+func (f *fakeServer) postRecovery(user string, r *http.Request) (any, int, error) {
+	b := decode[struct {
+		DeviceID       string `json:"device_id"`
+		RecoveryBackup []byte `json:"recovery_backup"`
+		Recovery       struct {
+			AgeRecipient string `json:"age_recipient"`
+			CreatedAtUS  int64  `json:"created_at_us"`
+			Signature    []byte `json:"signature"`
+		} `json:"recovery"`
+	}](r)
+	profile := f.profiles[user]
+	if profile == nil {
+		return fail(404, errNotFound)
+	}
+	if d := f.device(user, b.DeviceID); d == nil || d.Signature == nil || d.RevokedAt != nil {
+		return fail(403, fmt.Errorf("only one of your approved devices replaces the recovery key"))
+	}
+	cert := &cloudcrypto.RecipientCertificate{Kind: cloudcrypto.KindRecovery, UserID: user, RecipientID: cloudcrypto.KindRecovery,
+		AgeRecipient: b.Recovery.AgeRecipient, CreatedAt: time.UnixMicro(b.Recovery.CreatedAtUS), Signature: b.Recovery.Signature}
+	if cert.Verify(profile.key) != nil {
+		return fail(400, fmt.Errorf("the recovery recipient is not signed by the account key"))
+	}
+	profile.backup = b.RecoveryBackup
+	for _, d := range f.devices {
+		if d.UserID == user && d.Kind == cloudcrypto.KindRecovery {
+			d.AgeRecipient, d.CreatedAtUS, d.Signature = b.Recovery.AgeRecipient, b.Recovery.CreatedAtUS, b.Recovery.Signature
+		}
+	}
+	f.wrapped = slices.DeleteFunc(f.wrapped, func(w *fakeWrapped) bool {
+		return w.w.RecipientUserID != nil && *w.w.RecipientUserID == user && w.w.RecipientID == cloudcrypto.KindRecovery
+	})
+	return nil, 204, nil
 }
 
 func (f *fakeServer) getAccounts(_ string, r *http.Request) (any, int, error) {
