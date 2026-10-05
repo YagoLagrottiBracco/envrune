@@ -23,6 +23,7 @@ const cloudUsage = `cloud <command>
   init [--name device]                     Create your account, or register this device
   recover [--name device]                  Set up this device with your recovery key
   recovery reset                           Replace your recovery key with a new one
+  account reset [--name device]            Replace your account key, while you are in no organization
   device list | approve <id> | revoke <id>
   org list | show <org>
   org create <org> [--name n] [--roots email[,email]]   Up to two more root holders
@@ -155,6 +156,8 @@ func (w Workspace) cloud(argv []string) int {
 		return w.cloudRecover(rest)
 	case "recovery":
 		return w.cloudRecovery(rest)
+	case "account":
+		return w.cloudAccount(rest)
 	case "device":
 		return w.cloudDevice(rest)
 	case "org":
@@ -303,6 +306,33 @@ func (w Workspace) cloudDoctor(argv []string) int {
 	if failed {
 		return 1
 	}
+	return 0
+}
+
+// cloudAccount replaces the account's key: `cloud account reset`. See
+// docs/cloud-crypto.md, "Replacing the account key".
+func (w Workspace) cloudAccount(argv []string) int {
+	const usage = "cloud account reset [--name <device>]"
+	a, err := parseArgs(argv, []string{"name"}, nil, false)
+	if err != nil || len(a.positional) != 1 || a.positional[0] != "reset" {
+		return w.usageError(usage)
+	}
+	w.status().Warn("This makes a new account key, recovery key, and device, and revokes your other devices. The old recovery key stops working.")
+	w.status().Info("It works only while you are in no organization: an owner or admin of each removes you first, and adds you again afterwards.")
+	if !w.confirmChoice("Replace your account key?") {
+		w.status().Error("Confirmation is required.")
+		return 1
+	}
+	ctx, cancel := cloudContext()
+	defer cancel()
+	reset, err := w.cloudService().ResetAccount(ctx, deviceName(a))
+	if err != nil {
+		return w.cloudFail(err)
+	}
+	defer wipe(reset.RecoveryKey[:])
+	w.status().Success("Your account has a new key, and this device is the only one it trusts.")
+	showRecoveryKey(w.Stdout, w.status(), reset.RecoveryKey[:], cloudRecoveryUse, cloudRecoveryAgain)
+	w.status().Info("Account fingerprint: " + reset.AccountFingerprint + ". Read it to the administrator who adds you again.")
 	return 0
 }
 

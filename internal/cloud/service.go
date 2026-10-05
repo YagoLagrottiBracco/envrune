@@ -512,6 +512,80 @@ func (s *Service) ResetRecovery(ctx context.Context) (cloudcrypto.RecoveryKey, i
 	return key, shared, err
 }
 
+// AccountReset is what `envrune cloud account reset` made.
+type AccountReset struct {
+	RecoveryKey        cloudcrypto.RecoveryKey // show once, then wipe
+	AccountFingerprint string
+	DeviceFingerprint  string
+}
+
+// ResetAccount replaces the account's key with a new one, for an account
+// whose key may be known or whose every device and recovery key were lost
+// (docs/cloud-crypto.md). Everything is new: the account key, the recovery
+// key and its backup, and this device's keys, which the new account key
+// certifies. The server takes it only for an account that is in no
+// organization and is no organization's root holder, and revokes the
+// account's other devices.
+//
+// The new keys reach this vault only after the server took them, so a
+// refusal leaves the device as it was.
+func (s *Service) ResetAccount(ctx context.Context, deviceName string) (*AccountReset, error) {
+	st, c, err := s.signedIn()
+	if err != nil {
+		return nil, err
+	}
+	remote, err := c.account(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !remote.Registered {
+		return nil, ErrNoAccount
+	}
+	account, err := cloudcrypto.NewAccount(st.UserID)
+	if err != nil {
+		return nil, err
+	}
+	key, err := cloudcrypto.NewRecoveryKey()
+	if err != nil {
+		return nil, err
+	}
+	identity, err := age.GenerateX25519Identity()
+	if err != nil {
+		return nil, err
+	}
+	backup, err := cloudcrypto.SealRecoveryBackup(key, account, identity)
+	if err != nil {
+		return nil, err
+	}
+	id := make([]byte, 10)
+	if _, err := rand.Read(id); err != nil {
+		return nil, err
+	}
+	device, err := cloudcrypto.NewDevice(st.UserID, strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(id)))
+	if err != nil {
+		return nil, err
+	}
+	cert := account.CertifyDevice(device.DeviceID, device.Identity.Recipient().String(), device.SigningPublic())
+	if err := c.resetAccount(ctx, account.Public, backup, account.CertifyRecovery(identity.Recipient().String()), deviceName, cert); err != nil {
+		return nil, err
+	}
+	err = s.update(func(st *State) error {
+		st.AccountSeed, st.DeviceApproved = account.Seed(), true
+		st.DeviceID, st.DeviceIdentity, st.DeviceSigningSeed = device.DeviceID, device.Identity.String(), device.SigningSeed()
+		// Copies of environments were fetched as a member this account no
+		// longer is; the roots it pinned stay, for when it is added again.
+		for _, o := range st.Orgs {
+			o.Cache = nil
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("the server has the new account key, but this vault could not save it; run the command again: %w", err)
+	}
+	return &AccountReset{RecoveryKey: key, AccountFingerprint: cloudcrypto.Fingerprint(account.Public),
+		DeviceFingerprint: deviceFingerprint(device.Identity.Recipient().String(), device.SigningPublic())}, nil
+}
+
 // Device is one of the user's devices, for `envrune cloud device list`.
 type Device struct {
 	ID, Name, Kind string

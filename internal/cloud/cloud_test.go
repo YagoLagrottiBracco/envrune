@@ -199,6 +199,65 @@ func TestAResetRecoveryKeyReplacesTheOldOne(t *testing.T) {
 	}
 }
 
+func TestAnAccountKeyIsReplacedOutsideAnyOrganization(t *testing.T) {
+	f := newFakeServer(t)
+	alice, _ := founder(t, f)
+	bob := join(t, f, alice, "bob", cloudcrypto.RoleMaintainer, "shop/production")
+	before := must[*Status](t)(bob.Status())
+	if got := value(t, bob, production, "stripe-key"); got != "sk_live_1" {
+		t.Fatalf("bob read %q", got)
+	}
+
+	// Not while an organization trusts the key, and never a root holder.
+	if _, err := bob.ResetAccount(ctx, "bob-laptop"); err == nil || !strings.Contains(err.Error(), "in no organization") {
+		t.Fatalf("a member reset the account: %v", err)
+	}
+	if _, err := alice.ResetAccount(ctx, "alice-laptop"); err == nil || !strings.Contains(err.Error(), "root holder") {
+		t.Fatalf("a root holder reset the account: %v", err)
+	}
+	if after := must[*Status](t)(bob.Status()); after.AccountFingerprint != before.AccountFingerprint || after.DeviceID != before.DeviceID {
+		t.Fatal("a refused reset changed this device's keys")
+	}
+
+	// Removed, bob resets: everything is new, and the old device is revoked.
+	must[*Handover](t)(alice.RemoveMember(ctx, "acme", "bob"))
+	reset, err := bob.ResetAccount(ctx, "bob-laptop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := must[*Status](t)(bob.Status())
+	if after.AccountFingerprint == before.AccountFingerprint || after.AccountFingerprint != reset.AccountFingerprint ||
+		after.DeviceID == before.DeviceID || !after.DeviceApproved {
+		t.Fatalf("after the reset: %+v", after)
+	}
+	devices := must[[]Device](t)(bob.Devices(ctx))
+	for _, d := range devices {
+		if d.Kind == cloudcrypto.KindDevice && d.ID != after.DeviceID && !d.Revoked {
+			t.Fatalf("the old device %s is still trusted", d.ID)
+		}
+	}
+	for _, check := range bob.Doctor(ctx) {
+		if check.Level == CheckFail {
+			t.Fatalf("the doctor on the reset account: %s", check.Message)
+		}
+	}
+
+	// The administrator sees the new fingerprint and adds bob again; bob
+	// reads what is there now, and the new recovery key restores it.
+	found := must[*Account](t)(alice.LookupAccount(ctx, "bob@example.com"))
+	if found.Fingerprint != reset.AccountFingerprint {
+		t.Fatalf("the admin is shown %s, bob has %s", found.Fingerprint, reset.AccountFingerprint)
+	}
+	must[*Handover](t)(alice.AddMember(ctx, "acme", found, cloudcrypto.RoleMaintainer, []string{"shop/production"}))
+	if got := value(t, bob, production, "stripe-key"); got != "sk_live_1" {
+		t.Fatalf("bob read %q with the new account key", got)
+	}
+	lost := f.signIn("bob")
+	if restored := must[int](t)(lost.Recover(ctx, reset.RecoveryKey, "bob-desktop")); restored != 1 {
+		t.Fatalf("the new recovery key restored %d keys", restored)
+	}
+}
+
 func TestRemovedMembersCannotReadWhatComesNext(t *testing.T) {
 	f := newFakeServer(t)
 	alice, _ := founder(t, f)

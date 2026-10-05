@@ -3,7 +3,7 @@
 // schema_version() answers once it is applied. schema.test.ts fails when a
 // migration is added without moving this.
 
-export const expectedSchema = 20261005130000;
+export const expectedSchema = 20261005140000;
 
 export type DatabaseState = "ok" | "behind" | "ahead" | "unreachable";
 

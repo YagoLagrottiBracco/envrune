@@ -8,6 +8,34 @@ import (
 	"testing"
 )
 
+func TestCloudAccountResetAsksFirstAndSaysWhyTheServerRefuses(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/account", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"user_id":"alice","registered":true}`))
+	})
+	mux.HandleFunc("POST /api/v1/account/reset", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"an account is reset only while it is in no organization; ask an owner or admin of each to remove you first"}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	f := signedInFixture(t, srv.URL)
+
+	if code := f.run("cloud", "account"); code != 2 || !strings.Contains(f.output(), "cloud account reset") {
+		t.Fatalf("account = %d: %s", code, f.output())
+	}
+	f.choices = []string{"n"}
+	if code := f.run("cloud", "account", "reset"); code != 1 || !strings.Contains(f.output(), "Confirmation is required.") {
+		t.Fatalf("declined reset = %d: %s", code, f.output())
+	}
+	f.choices = []string{"y"}
+	code := f.run("cloud", "account", "reset")
+	out := f.output()
+	if code == 0 || !strings.Contains(out, "in no organization") || strings.Contains(out, "Write down this recovery key") {
+		t.Fatalf("a refused reset = %d: %s", code, out)
+	}
+}
+
 func TestCloudRecoveryResetAsksFirstAndNeedsATrustedDevice(t *testing.T) {
 	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -4,7 +4,7 @@
 -- member. Signatures are placeholders: the database does not check them;
 -- the API and every client do.
 begin;
-select plan(91);
+select plan(98);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'alice@example.com'),
@@ -327,9 +327,33 @@ select ok(exists (select 1 from public.audit_log where org_id = :'org' and actio
   'the organization sees that a recovery key was replaced');
 set local role authenticated;
 
+-- Replacing an account key: only an account that is in no organization,
+-- and never a root holder.
+select pg_temp.become('00000000-0000-0000-0000-00000000000a');
+select throws_ok($$ select public.reset_account(pg_temp.key(91), 'b', 'age1r', 50, pg_temp.sig(), 'new', 'new', 'age1d', pg_temp.key(92), 50, pg_temp.sig()) $$,
+  '42501', null, 'a root holder cannot replace the account key');
+select pg_temp.become('00000000-0000-0000-0000-00000000000c');
+select throws_ok($$ select public.reset_account(pg_temp.key(91), 'b', 'age1r', 50, pg_temp.sig(), 'new', 'new', 'age1d', pg_temp.key(92), 50, pg_temp.sig()) $$,
+  '42501', null, 'a member of an organization cannot replace the account key');
+select pg_temp.become('00000000-0000-0000-0000-00000000000e');
+select public.register_device('mallory-laptop', 'laptop', 'age1mallory', pg_temp.key(15), 1, pg_temp.sig());
+select throws_ok($$ select public.reset_account(pg_temp.key(91), 'b', 'age1r', 50, pg_temp.sig(), 'new', 'new', 'age1d', pg_temp.key(92), 50, null) $$,
+  '22023', null, 'the new device must be certified');
+select lives_ok($$ select public.reset_account(pg_temp.key(91), 'fresh backup', 'age1malloryrecovery', 50, pg_temp.sig(), 'mallory-new', 'new laptop', 'age1mallorynew', pg_temp.key(92), 50, pg_temp.sig()) $$,
+  'an account in no organization replaces its key');
+reset role;
+select is((select account_key from public.profiles where user_id = '00000000-0000-0000-0000-00000000000e'), pg_temp.key(91),
+  'the account key is the new one');
+select is((select string_agg(id || ':' || (revoked_at is null)::text, ' ' order by id) from public.devices
+    where user_id = '00000000-0000-0000-0000-00000000000e' and kind = 'device'),
+  'mallory-laptop:false mallory-new:true', 'the old devices are revoked and the new one is trusted');
+select is((select age_recipient from public.devices where user_id = '00000000-0000-0000-0000-00000000000e' and id = 'recovery'),
+  'age1malloryrecovery', 'the recovery recipient is the new one');
+set local role authenticated;
+
 -- Anyone may ask which schema the database has.
 set local role anon;
-select ok(public.schema_version() >= 20261005130000, 'the database says which schema it has');
+select ok(public.schema_version() >= 20261005140000, 'the database says which schema it has');
 set local role authenticated;
 
 -- The audit log is append-only and hash-chained.

@@ -237,6 +237,27 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("the recovered device read %q", got)
 	}
 
+	// An account key is replaced only outside any organization: a member
+	// is refused, and someone in none gets new keys that an administrator
+	// can then vouch for.
+	if _, err := bob.ResetAccount(ctx, "bob-laptop"); err == nil {
+		t.Fatal("a member of an organization reset the account key")
+	}
+	erin, erinEmail := e.user("erin")
+	first := must[*SetupResult](t)(erin.Setup(ctx, "erin-laptop"))
+	reset := must[*AccountReset](t)(erin.ResetAccount(ctx, "erin-laptop"))
+	if reset.AccountFingerprint == first.AccountFingerprint {
+		t.Fatal("the reset kept the account key")
+	}
+	if shown := must[*Account](t)(alice.LookupAccount(ctx, erinEmail)); shown.Fingerprint != reset.AccountFingerprint {
+		t.Fatalf("the server shows %s for an account reset to %s", shown.Fingerprint, reset.AccountFingerprint)
+	}
+	for _, check := range erin.Doctor(ctx) {
+		if check.Level == CheckFail {
+			t.Fatalf("the doctor on the reset account: %s", check.Message)
+		}
+	}
+
 	// A new recovery key replaces the one shown at sign-up: the server's
 	// backup opens with it and no longer with the old one, and the keys are
 	// wrapped for the new recovery recipient.

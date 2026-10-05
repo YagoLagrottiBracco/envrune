@@ -163,6 +163,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 	route("GET /api/v1/account", f.getAccount)
 	route("POST /api/v1/account", f.postAccount)
 	route("POST /api/v1/account/recovery", f.postRecovery)
+	route("POST /api/v1/account/reset", f.postAccountReset)
 	route("GET /api/v1/accounts", f.getAccounts)
 	route("POST /api/v1/devices", f.postDevice)
 	route("POST /api/v1/devices/{id}/approve", f.approveDevice)
@@ -497,6 +498,60 @@ func (f *fakeServer) postRecovery(user string, r *http.Request) (any, int, error
 	}
 	f.wrapped = slices.DeleteFunc(f.wrapped, func(w *fakeWrapped) bool {
 		return w.w.RecipientUserID != nil && *w.w.RecipientUserID == user && w.w.RecipientID == cloudcrypto.KindRecovery
+	})
+	return nil, 204, nil
+}
+
+// postAccountReset replaces an account's key, as reset_account does: only
+// for an account in no organization that is no root holder, with a device
+// and a recovery recipient the new key signed.
+func (f *fakeServer) postAccountReset(user string, r *http.Request) (any, int, error) {
+	b := decode[struct {
+		AccountKey     []byte `json:"account_key"`
+		RecoveryBackup []byte `json:"recovery_backup"`
+		Recovery       struct {
+			AgeRecipient string `json:"age_recipient"`
+			CreatedAtUS  int64  `json:"created_at_us"`
+			Signature    []byte `json:"signature"`
+		} `json:"recovery"`
+		Device deviceJSON `json:"device"`
+	}](r)
+	profile := f.profiles[user]
+	if profile == nil {
+		return fail(404, errNotFound)
+	}
+	for _, o := range f.orgs {
+		for _, root := range o.roots {
+			if root.UserID == user {
+				return fail(403, fmt.Errorf("a root holder's account key is pinned by every member of the organization and cannot be replaced"))
+			}
+		}
+		if m := f.role(o.id, user); m.Role != "" && m.Role != "removed" {
+			return fail(403, fmt.Errorf("an account is reset only while it is in no organization; ask an owner or admin of each to remove you first"))
+		}
+	}
+	recovery := &cloudcrypto.RecipientCertificate{Kind: cloudcrypto.KindRecovery, UserID: user, RecipientID: cloudcrypto.KindRecovery,
+		AgeRecipient: b.Recovery.AgeRecipient, CreatedAt: time.UnixMicro(b.Recovery.CreatedAtUS), Signature: b.Recovery.Signature}
+	b.Device.UserID, b.Device.Kind = user, cloudcrypto.KindDevice
+	if recovery.Verify(b.AccountKey) != nil || b.Device.certificate().Verify(b.AccountKey) != nil {
+		return fail(400, fmt.Errorf("the recovery recipient and the device must be signed by the new account key"))
+	}
+	profile.key, profile.backup = b.AccountKey, b.RecoveryBackup
+	now := time.Now().String()
+	for _, d := range f.devices {
+		if d.UserID != user {
+			continue
+		}
+		if d.Kind == cloudcrypto.KindRecovery {
+			d.AgeRecipient, d.CreatedAtUS, d.Signature = b.Recovery.AgeRecipient, b.Recovery.CreatedAtUS, b.Recovery.Signature
+		} else if d.RevokedAt == nil {
+			d.RevokedAt = &now
+		}
+	}
+	f.devices = append(f.devices, &deviceJSON{UserID: user, ID: b.Device.ID, Kind: cloudcrypto.KindDevice, Name: b.Device.Name,
+		AgeRecipient: b.Device.AgeRecipient, SigningKey: b.Device.SigningKey, CreatedAtUS: b.Device.CreatedAtUS, Signature: b.Device.Signature})
+	f.wrapped = slices.DeleteFunc(f.wrapped, func(w *fakeWrapped) bool {
+		return w.w.RecipientUserID != nil && *w.w.RecipientUserID == user
 	})
 	return nil, 204, nil
 }

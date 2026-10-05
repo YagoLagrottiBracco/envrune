@@ -17,6 +17,12 @@ All notable changes to EnvRune are listed here. The format follows
   server's database is not set up, and `/api/v1/health` reports it as
   `database`. Self-hosted servers apply the new migration
   (`20261005130000_schema_version.sql`).
+- `envrune cloud account reset` replaces your account key, for a key that
+  may be known or for someone who lost every device and the recovery key.
+  It works while the account is in no organization: an administrator
+  removes the member, the member resets, and the administrator adds them
+  again after comparing the new fingerprint. Self-hosted servers apply the
+  new migration (`20261005140000_account_reset.sql`).
 - `forward:` in `envrune.yml` gives a variable the address of a service.
   When a sensitive secret is used there, the address is one on this
   computer that stands for the service, so a program that ignores the proxy
