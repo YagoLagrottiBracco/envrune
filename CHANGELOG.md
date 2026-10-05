@@ -18,6 +18,12 @@ All notable changes to EnvRune are listed here. The format follows
   `database`. Self-hosted servers apply the new migration
   (`20261005130000_schema_version.sql`).
 
+### Fixed
+
+- Commands that use a sensitive secret work on a network that only lets
+  traffic out through its own proxy: the requests `envrune` does not read
+  leave through that proxy, as they would have without `envrune`.
+
 ### Changed
 
 - A recovery key, of the vault or of EnvRune Cloud, is shown on a screen of

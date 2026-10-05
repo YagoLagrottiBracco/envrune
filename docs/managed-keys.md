@@ -206,11 +206,15 @@ through the variables runtimes read for extra authorities
 `CURL_CA_BUNDLE`). Nothing is installed on the machine. What envrune sees
 this way is what the program sent: the placeholder, never the value.
 
-Two limits follow. A program that ignores those variables cannot be
+On a network that only lets traffic out through its own proxy, `envrune`
+uses it: requests that do not take the detour leave through the proxy the
+program would have used (`HTTPS_PROXY`, `HTTP_PROXY`, and `NO_PROXY` as
+`envrune` itself was started with), with its user and password if the
+address has them, and so does `envrune`'s own connection to the server.
+
+One limit follows. A program that ignores those variables cannot be
 redirected this way, and its requests would carry the placeholder to the
-service, which refuses it: nothing leaks, but nothing works. And requests
-that do not take the detour leave this computer directly, so a network that
-only lets traffic out through its own proxy is not supported yet.
+service, which refuses it: nothing leaks, but nothing works.
 
 `run`, named commands, `up`, `render`, `check`, and the MCP server set this
 up. Commands that would show a value (`env`, `export`, `copy`) refuse an

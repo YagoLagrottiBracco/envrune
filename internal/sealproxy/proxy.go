@@ -12,6 +12,8 @@
 package sealproxy
 
 import (
+	"bufio"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -24,6 +26,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,6 +51,12 @@ type Proxy struct {
 	caKey     *ecdsa.PrivateKey
 	caPEM     []byte
 	dir       string // holds the bundle the command trusts
+
+	// upstream says which proxy, if any, a request leaves this computer
+	// through: the one the command would have used had it not been pointed
+	// here. It is http.ProxyFromEnvironment, so a network that only lets
+	// traffic out through its own proxy keeps working.
+	upstream func(*http.Request) (*url.URL, error)
 
 	mu     sync.Mutex
 	leaves map[string]*tls.Certificate
@@ -89,7 +98,7 @@ func Start(forwarder Forwarder) (*Proxy, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := &Proxy{forwarder: forwarder, listener: listener, caCert: cert, caKey: key, leaves: map[string]*tls.Certificate{},
+	p := &Proxy{forwarder: forwarder, listener: listener, caCert: cert, caKey: key, leaves: map[string]*tls.Certificate{}, upstream: http.ProxyFromEnvironment,
 		caPEM: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})}
 	p.server = &http.Server{Handler: http.HandlerFunc(p.serve), ReadHeaderTimeout: 30 * time.Second}
 	go func() { _ = p.server.Serve(listener) }()
@@ -195,9 +204,9 @@ func (p *Proxy) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	if port != "443" || !p.forwarder.Handles(host) {
 		// Not ours: connect the two ends and read nothing.
-		upstream, err := net.DialTimeout("tcp", r.Host, 30*time.Second)
+		upstream, err := p.dial(r.Context(), r.Host)
 		if err != nil {
-			http.Error(w, "envrune: could not reach "+r.Host, http.StatusBadGateway)
+			http.Error(w, "envrune: could not reach "+r.Host+": "+err.Error(), http.StatusBadGateway)
 			return
 		}
 		client, _, err := hijacker.Hijack()
@@ -263,7 +272,7 @@ func (p *Proxy) plain(w http.ResponseWriter, r *http.Request) {
 	out := r.Clone(r.Context())
 	out.RequestURI = ""
 	out.Header.Del("Proxy-Connection")
-	resp, err := (&http.Transport{Proxy: nil}).RoundTrip(out)
+	resp, err := (&http.Transport{Proxy: p.upstream}).RoundTrip(out)
 	if err != nil {
 		http.Error(w, "envrune: could not reach "+r.URL.Host, http.StatusBadGateway)
 		return
@@ -275,6 +284,70 @@ func (p *Proxy) plain(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
 }
+
+// dial connects to address, a host and port, for a tunnel this proxy does
+// not read: directly, or through the proxy the network requires.
+func (p *Proxy) dial(ctx context.Context, address string) (net.Conn, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	var dialer net.Dialer
+	via, err := p.upstream(&http.Request{URL: &url.URL{Scheme: "https", Host: address}})
+	if err != nil {
+		return nil, err
+	}
+	if via == nil {
+		return dialer.DialContext(ctx, "tcp", address)
+	}
+	if via.Scheme != "http" && via.Scheme != "https" {
+		return nil, errors.New("the network's proxy is a " + via.Scheme + " proxy, which EnvRune cannot use")
+	}
+	at := via.Host
+	if via.Port() == "" {
+		at = net.JoinHostPort(via.Hostname(), map[string]string{"http": "80", "https": "443"}[via.Scheme])
+	}
+	conn, err := dialer.DialContext(ctx, "tcp", at)
+	if err != nil {
+		return nil, errors.New("the network's proxy could not be reached")
+	}
+	if via.Scheme == "https" {
+		conn = tls.Client(conn, &tls.Config{ServerName: via.Hostname(), MinVersion: tls.VersionTLS12})
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	}
+	connect := &http.Request{Method: http.MethodConnect, URL: &url.URL{Opaque: address}, Host: address, Header: http.Header{}}
+	if user := via.User; user != nil {
+		password, _ := user.Password()
+		connect.SetBasicAuth(user.Username(), password)
+		connect.Header.Set("Proxy-Authorization", connect.Header.Get("Authorization"))
+		connect.Header.Del("Authorization")
+	}
+	if err := connect.Write(conn); err != nil {
+		conn.Close()
+		return nil, errors.New("the network's proxy did not take the request")
+	}
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, connect)
+	if err != nil {
+		conn.Close()
+		return nil, errors.New("the network's proxy did not answer")
+	}
+	if resp.StatusCode != http.StatusOK {
+		conn.Close()
+		return nil, errors.New("the network's proxy answered " + resp.Status)
+	}
+	_ = conn.SetDeadline(time.Time{})
+	// What the proxy sent after its answer already belongs to the tunnel.
+	return &buffered{Conn: conn, reader: reader}, nil
+}
+
+// buffered is a connection whose first bytes were already read into reader.
+type buffered struct {
+	net.Conn
+	reader *bufio.Reader
+}
+
+func (b *buffered) Read(p []byte) (int, error) { return b.reader.Read(p) }
 
 // leaf returns a certificate for host signed by this proxy's authority.
 func (p *Proxy) leaf(host string) (*tls.Certificate, error) {

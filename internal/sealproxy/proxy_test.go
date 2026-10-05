@@ -3,8 +3,10 @@ package sealproxy
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -187,5 +189,110 @@ func TestEnvironmentPointsAProgramAtTheProxy(t *testing.T) {
 	p.Close()
 	if _, err := os.Stat(got["SSL_CERT_FILE"]); err == nil {
 		t.Fatal("the bundle outlived the proxy")
+	}
+}
+
+// corporate is a network's own proxy: the only way out, which asks for a
+// user and password and remembers what it tunnelled.
+type corporate struct {
+	mu       sync.Mutex
+	tunnels  []string
+	requests []string
+}
+
+func (c *corporate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Proxy-Authorization") != "Basic "+base64.StdEncoding.EncodeToString([]byte("worker:s3cret")) {
+		w.WriteHeader(http.StatusProxyAuthRequired)
+		return
+	}
+	c.mu.Lock()
+	if r.Method == http.MethodConnect {
+		c.tunnels = append(c.tunnels, r.Host)
+	} else {
+		c.requests = append(c.requests, r.URL.String())
+	}
+	c.mu.Unlock()
+	if r.Method != http.MethodConnect {
+		resp, err := http.DefaultTransport.RoundTrip(&http.Request{Method: r.Method, URL: r.URL, Header: http.Header{}})
+		if err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+		return
+	}
+	upstream, err := net.Dial("tcp", r.Host)
+	if err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		return
+	}
+	client, _, _ := w.(http.Hijacker).Hijack()
+	_, _ = io.WriteString(client, "HTTP/1.1 200 Connection established\r\n\r\n")
+	go func() { _, _ = io.Copy(upstream, client); upstream.Close() }()
+	go func() { _, _ = io.Copy(client, upstream); client.Close() }()
+}
+
+func TestOtherHostsLeaveThroughTheNetworksProxy(t *testing.T) {
+	other := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "reached") }))
+	defer other.Close()
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "plain") }))
+	defer plain.Close()
+	network := &corporate{}
+	way := httptest.NewServer(network)
+	defer way.Close()
+
+	p, err := Start(&recorder{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	out, _ := url.Parse(way.URL)
+	out.User = url.UserPassword("worker", "s3cret")
+	p.upstream = func(*http.Request) (*url.URL, error) { return out, nil }
+	pool := x509.NewCertPool()
+	pool.AddCert(other.Certificate())
+	c := client(t, p, pool)
+
+	resp, err := c.Get(other.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	// Still the other server's own certificate: neither proxy read it.
+	if string(body) != "reached" || !resp.TLS.PeerCertificates[0].Equal(other.Certificate()) {
+		t.Fatalf("through the network's proxy: %q", body)
+	}
+	if resp, err := c.Get(plain.URL); err != nil {
+		t.Fatal(err)
+	} else if body, _ := io.ReadAll(resp.Body); string(body) != "plain" {
+		t.Fatalf("a plain request through the network's proxy answered %q", body)
+	}
+	network.mu.Lock()
+	defer network.mu.Unlock()
+	if len(network.tunnels) != 1 || network.tunnels[0] != strings.TrimPrefix(other.URL, "https://") || len(network.requests) != 1 {
+		t.Fatalf("the network's proxy tunnelled %v and passed on %v", network.tunnels, network.requests)
+	}
+}
+
+func TestANetworkProxyThatRefusesIsSaidSo(t *testing.T) {
+	other := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer other.Close()
+	way := httptest.NewServer(&corporate{})
+	defer way.Close()
+
+	p, err := Start(&recorder{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	out, _ := url.Parse(way.URL) // no user or password: the proxy answers 407
+	p.upstream = func(*http.Request) (*url.URL, error) { return out, nil }
+
+	_, err = client(t, p, nil).Get(other.URL)
+	if err == nil || !strings.Contains(err.Error(), "Bad Gateway") {
+		t.Fatalf("a refused tunnel should fail as a bad gateway: %v", err)
 	}
 }
