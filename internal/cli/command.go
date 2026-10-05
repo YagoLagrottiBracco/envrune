@@ -267,7 +267,7 @@ func executeInit(read func(string) ([]byte, error), stdout io.Writer, status Pre
 	}
 	defer wipe(recovery)
 	status.Success("Vault initialized.")
-	showRecoveryKey(stdout, status, recovery)
+	showRecoveryKey(stdout, status, recovery, vaultRecoveryUse, vaultRecoveryAgain)
 	return 0
 }
 

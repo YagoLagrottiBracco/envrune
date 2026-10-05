@@ -776,17 +776,19 @@ func (w Workspace) recovery(argv []string) int {
 			return w.fail(err, "The recovery key could not be created.")
 		}
 		defer wipe(key)
-		showRecoveryKey(w.Stdout, w.status(), key)
+		showRecoveryKey(w.Stdout, w.status(), key, vaultRecoveryUse, vaultRecoveryAgain)
 		return 0
 	}
 	return w.usageError("recovery [reset]")
 }
 
-func showRecoveryKey(out io.Writer, status Presenter, key []byte) {
-	status.Warn("Write down this recovery key and keep it offline. It is shown only once.")
-	fmt.Fprintf(out, "\n    %s\n\n", vault.FormatRecoveryKey(key))
-	status.Info("If you forget the master password, run `envrune recover` and enter this key.")
-}
+// The local vault's recovery key: what it is for, and how to replace it.
+const (
+	vaultRecoveryUse   = "If you forget the master password, run `envrune recover` and enter this key."
+	vaultRecoveryAgain = "envrune recovery reset"
+	cloudRecoveryUse   = "If you lose every device, run `envrune cloud recover` and enter this key."
+	cloudRecoveryAgain = "envrune cloud recovery reset"
+)
 
 func (w Workspace) unlock(argv []string) int {
 	ttl, err := unlockTTL(argv)

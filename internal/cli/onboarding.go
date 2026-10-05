@@ -88,7 +88,7 @@ func (o Onboarding) Run() int {
 	}
 	defer wipe(recovery)
 	status.Success("Vault initialized. Run `envrune shell` to begin.")
-	showRecoveryKey(o.Stdout, status, recovery)
+	showRecoveryKey(o.Stdout, status, recovery, vaultRecoveryUse, vaultRecoveryAgain)
 	return 0
 }
 

@@ -249,9 +249,7 @@ func (w Workspace) cloudInit(argv []string) int {
 	case result.Created:
 		defer wipe(result.RecoveryKey)
 		w.status().Success("Created your EnvRune Cloud account on this device.")
-		w.status().Warn("Write down this recovery key and keep it offline. It is shown only once.")
-		fmt.Fprintf(w.Stdout, "\n    %s\n\n", vault.FormatRecoveryKey(result.RecoveryKey))
-		w.status().Info("If you lose every device, `envrune cloud recover` with this key restores your access.")
+		showRecoveryKey(w.Stdout, w.status(), result.RecoveryKey, cloudRecoveryUse, cloudRecoveryAgain)
 		w.status().Info("Account fingerprint: " + result.AccountFingerprint + ". An admin compares it before adding you.")
 	case result.Pending:
 		w.status().Warn("This device is waiting for approval. On a device you already use, run:")
@@ -294,14 +292,13 @@ func (w Workspace) cloudRecovery(argv []string) int {
 	// From here the server holds the new backup: the key is shown even if
 	// wrapping the environment keys for it failed, or nothing would open it.
 	w.status().Success("Your recovery key was replaced. The old one no longer opens anything on the server.")
-	w.status().Warn("Write down this recovery key and keep it offline. It is shown only once.")
-	fmt.Fprintf(w.Stdout, "\n    %s\n\n", vault.FormatRecoveryKey(key[:]))
+	showRecoveryKey(w.Stdout, w.status(), key[:], cloudRecoveryUse, cloudRecoveryAgain)
 	if err != nil {
 		w.cloudFail(err)
 		w.status().Warn("Not every environment key was wrapped for the new recovery key. Run `envrune cloud recovery reset` again.")
 		return 1
 	}
-	w.status().Info(fmt.Sprintf("It restores %d %s. If you lose every device, run `envrune cloud recover` with it.", shared, plural(shared, "environment key", "environment keys")))
+	w.status().Info(fmt.Sprintf("It restores %d %s.", shared, plural(shared, "environment key", "environment keys")))
 	return 0
 }
 

@@ -12,6 +12,14 @@ All notable changes to EnvRune are listed here. The format follows
   `envrune version --check` asks GitHub whether a newer release exists.
   EnvRune never looks for updates by itself.
 
+### Changed
+
+- A recovery key, of the vault or of EnvRune Cloud, is shown on a screen of
+  its own that keeps no scrollback, and leaves it once you type one of its
+  groups back. It no longer sits among a command's output, where it was
+  copied along when that output was pasted somewhere. Redirected output
+  still gets the key as text.
+
 ## [1.2.0] - 2026-10-05
 
 ### Added
