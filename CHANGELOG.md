@@ -6,6 +6,8 @@ All notable changes to EnvRune are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-05
+
 ### Added
 
 - `envrune version` prints the version of the installed command, and
@@ -303,7 +305,8 @@ second, and only a change that breaks what worked before raises the first.
 
 First release.
 
-[Unreleased]: https://github.com/YagoLagrottiBracco/envrune/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/YagoLagrottiBracco/envrune/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/YagoLagrottiBracco/envrune/compare/v1.2.0...v1.7.0
 [1.2.0]: https://github.com/YagoLagrottiBracco/envrune/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/YagoLagrottiBracco/envrune/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/YagoLagrottiBracco/envrune/compare/v1.0.0...v1.0.1
