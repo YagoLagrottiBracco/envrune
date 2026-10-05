@@ -300,10 +300,10 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-Versions follow [Semantic Versioning](https://semver.org/). Counting the
-commits since the last release, each fix raises the patch number and each
-new feature the minor number; the major number changes only when something
-that worked before stops working.
+Versions follow [Semantic Versioning](https://semver.org/): a release with
+only fixes raises the patch number, a release with a new feature raises the
+minor number, and the major number changes only when something that worked
+before stops working.
 
 Treat `main` as active development.
 
